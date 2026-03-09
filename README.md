@@ -107,11 +107,60 @@ docker build -t finance-tracker .
 docker run -p 3001:3001 -v finance-data:/data finance-tracker
 ```
 
+## Database
+
+By default the app uses **SQLite** — no setup required, the database file is created automatically.
+
+To use **PostgreSQL** instead, set the `DATABASE_URL` environment variable:
+
+```bash
+# Local development
+DATABASE_URL=postgresql://user:password@localhost:5432/finance npm run dev:all
+```
+
+The app detects `DATABASE_URL` at startup and switches automatically. Tables are created on first run for both backends.
+
+### Docker with PostgreSQL
+
+```yaml
+services:
+  finance-tracker:
+    image: anri04/finance-tracker:latest
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://finance:finance@postgres:5432/finance
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance
+      POSTGRES_DB: finance
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finance"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+```
+
 ## Project Structure
 
 ```
 server/               # Backend (Express REST API)
-  db.ts               # SQLite connection & schema migration
+  db/
+    adapter.ts        # DbAdapter interface
+    sqlite.ts         # SQLite implementation (better-sqlite3)
+    postgres.ts       # PostgreSQL implementation (pg)
+    index.ts          # Factory — picks adapter based on DATABASE_URL
   index.ts            # Express server entry point
   routes/
     accounts.ts       # Account CRUD
