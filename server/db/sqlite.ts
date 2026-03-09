@@ -10,6 +10,8 @@ const SCHEMA = `
     color TEXT NOT NULL DEFAULT '#3b82f6',
     description TEXT,
     is_default INTEGER NOT NULL DEFAULT 0,
+    freibetrag REAL DEFAULT NULL,
+    freibetrag_year INTEGER DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -59,6 +61,8 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
 
   // Migrations for existing databases
   try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag REAL DEFAULT NULL"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag_year INTEGER DEFAULT NULL"); } catch { /* already exists */ }
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

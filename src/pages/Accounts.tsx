@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 
 type Account = {
   id: number;
@@ -9,6 +9,8 @@ type Account = {
   color: string;
   description?: string;
   isDefault: boolean;
+  freibetrag?: number | null;
+  freibetragYear?: number | null;
 };
 
 type AccountSummary = {
@@ -17,9 +19,11 @@ type AccountSummary = {
   monthlyIncome: number;
   rest: number;
   itemCount: number;
+  freibetragMonthly: number;
 };
 
 type Summary = {
+  totalFreibetrag: number;
   byAccount: AccountSummary[];
 };
 
@@ -27,6 +31,8 @@ const PRESET_COLORS = [
   "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b",
   "#ef4444", "#06b6d4", "#ec4899", "#84cc16",
 ];
+
+const FREIBETRAG_LIMIT = 1000;
 
 export default function Accounts() {
   const { data: accounts, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
@@ -38,6 +44,8 @@ export default function Accounts() {
     name: "",
     color: "#3b82f6",
     description: "",
+    freibetrag: "",
+    freibetragYear: "",
   });
 
   if (!accounts || !summary) {
@@ -52,14 +60,22 @@ export default function Accounts() {
     summary.byAccount.map((b) => [b.account.id, b])
   );
 
+  const currentYear = new Date().getFullYear();
+
   function openAdd() {
-    setForm({ name: "", color: "#3b82f6", description: "" });
+    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "" });
     setEditId(null);
     setShowAdd(true);
   }
 
   function openEdit(a: Account) {
-    setForm({ name: a.name, color: a.color, description: a.description ?? "" });
+    setForm({
+      name: a.name,
+      color: a.color,
+      description: a.description ?? "",
+      freibetrag: a.freibetrag != null ? String(a.freibetrag) : "",
+      freibetragYear: a.freibetragYear != null ? String(a.freibetragYear) : "",
+    });
     setEditId(a.id);
     setShowAdd(true);
   }
@@ -70,6 +86,8 @@ export default function Accounts() {
       name: form.name,
       color: form.color,
       description: form.description || undefined,
+      freibetrag: form.freibetrag ? parseFloat(form.freibetrag) : null,
+      freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
     };
     if (editId) {
       await api.patch(`/accounts/${editId}`, payload);
@@ -104,9 +122,24 @@ export default function Accounts() {
         </button>
       </div>
 
+      {/* Freibetrag warning */}
+      {summary.totalFreibetrag > FREIBETRAG_LIMIT && (
+        <div className="flex items-center gap-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3">
+          <AlertTriangle size={16} className="text-yellow-400 flex-shrink-0" />
+          <p className="text-sm text-yellow-300">
+            Freistellungsauftrag überschritten:{" "}
+            <span className="font-semibold">{eur(summary.totalFreibetrag)}</span>
+            {" "}/ {eur(FREIBETRAG_LIMIT)} pro Jahr verteilt
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         {accounts.map((account) => {
           const s = accSummaryMap[account.id];
+          const hasFreibetrag = account.freibetrag != null && account.freibetrag > 0;
+          const fbExpired = hasFreibetrag && account.freibetragYear != null && account.freibetragYear < currentYear;
+
           return (
             <div
               key={account.id}
@@ -124,6 +157,16 @@ export default function Accounts() {
                     <div className="font-semibold text-white">{account.name}</div>
                     {account.description && (
                       <div className="text-xs text-gray-500">{account.description}</div>
+                    )}
+                    {hasFreibetrag && (
+                      <div className={`text-xs mt-0.5 ${fbExpired ? "text-red-400" : "text-gray-400"}`}>
+                        Freibetrag: {eur(account.freibetrag!)}/Jahr
+                        {account.freibetragYear != null
+                          ? fbExpired
+                            ? ` (abgelaufen ${account.freibetragYear})`
+                            : ` (bis ${account.freibetragYear})`
+                          : " (unbefristet)"}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -217,6 +260,33 @@ export default function Accounts() {
                     style={{ backgroundColor: c }}
                   />
                 ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-gray-400 font-medium">Freibetrag €/Jahr (optional)</label>
+                <input
+                  type="number"
+                  value={form.freibetrag}
+                  onChange={(e) => setForm((f) => ({ ...f, freibetrag: e.target.value }))}
+                  className="input"
+                  placeholder="z.B. 801"
+                  step="0.01"
+                  min="0"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-400 font-medium">Bis Jahr (leer = unbefristet)</label>
+                <input
+                  type="number"
+                  value={form.freibetragYear}
+                  onChange={(e) => setForm((f) => ({ ...f, freibetragYear: e.target.value }))}
+                  className="input"
+                  placeholder={String(currentYear)}
+                  min="2000"
+                  max="2100"
+                />
               </div>
             </div>
 

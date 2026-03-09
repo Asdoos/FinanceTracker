@@ -14,20 +14,22 @@ router.get("/", async (_req, res) => {
       color: r.color,
       description: r.description || undefined,
       isDefault: !!r.is_default,
+      freibetrag: r.freibetrag ?? null,
+      freibetragYear: r.freibetrag_year ?? null,
     }))
   );
 });
 
 // POST /api/accounts
 router.post("/", async (req, res) => {
-  const { name, color, description, isDefault } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear } = req.body;
   if (!name || !color) {
     return res.status(400).json({ error: "name and color are required" });
   }
   const db = await getDb();
   const result = await db.run(
-    "INSERT INTO accounts (name, color, description, is_default) VALUES (?, ?, ?, ?)",
-    [name, color, description || null, isDefault ? 1 : 0]
+    "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year) VALUES (?, ?, ?, ?, ?, ?)",
+    [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null]
   );
   res.status(201).json({ id: result.lastId });
 });
@@ -35,7 +37,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/accounts/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, description, isDefault } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);
@@ -48,6 +50,8 @@ router.patch("/:id", async (req, res) => {
   if (color !== undefined) { fields.push("color = ?"); values.push(color); }
   if (description !== undefined) { fields.push("description = ?"); values.push(description || null); }
   if (isDefault !== undefined) { fields.push("is_default = ?"); values.push(isDefault ? 1 : 0); }
+  if (freibetrag !== undefined) { fields.push("freibetrag = ?"); values.push(freibetrag ?? null); }
+  if (freibetragYear !== undefined) { fields.push("freibetrag_year = ?"); values.push(freibetragYear ?? null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

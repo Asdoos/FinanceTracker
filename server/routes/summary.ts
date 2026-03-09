@@ -36,6 +36,7 @@ router.get("/", async (_req, res) => {
   const rest = totalMonthlyIncome - totalMonthlyExpenses;
 
   // ── Per account breakdown ──
+  const currentYear = new Date().getFullYear();
   const byAccount = accounts.map((account: any) => {
     const accExp = activeExpenses.filter((e: any) => e.account_id === account.id);
     const accInc = activeIncomes.filter((i: any) => i.account_id === account.id);
@@ -47,6 +48,10 @@ router.get("/", async (_req, res) => {
       (sum: number, i: any) => sum + toMonthly(i.amount, i.type), 0
     );
 
+    const fb = account.freibetrag ?? 0;
+    const fbActive = fb > 0 && (account.freibetrag_year === null || account.freibetrag_year >= currentYear);
+    const freibetragMonthly = fbActive ? fb / 12 : 0;
+
     return {
       account: {
         id: account.id,
@@ -54,13 +59,18 @@ router.get("/", async (_req, res) => {
         color: account.color,
         description: account.description || undefined,
         isDefault: !!account.is_default,
+        freibetrag: account.freibetrag ?? null,
+        freibetragYear: account.freibetrag_year ?? null,
       },
       monthlyExpenses,
       monthlyIncome,
       rest: monthlyIncome - monthlyExpenses,
       itemCount: accExp.length + accInc.length,
+      freibetragMonthly,
     };
   });
+
+  const totalFreibetrag = byAccount.reduce((s: number, a: any) => s + a.freibetragMonthly * 12, 0);
 
   // ── Per category breakdown ──
   const byCategory = categories.map((cat: any) => {
@@ -106,6 +116,7 @@ router.get("/", async (_req, res) => {
     totalAnnualExpenses: totalMonthlyExpenses * 12,
     totalAnnualIncome: totalMonthlyIncome * 12,
     rest,
+    totalFreibetrag,
     byAccount,
     byCategory,
     expenses: enrichedExpenses,
