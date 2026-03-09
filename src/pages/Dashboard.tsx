@@ -8,7 +8,9 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle } from "lucide-react";
+
+const FREIBETRAG_LIMIT = 1000;
 
 type Summary = {
   totalMonthlyExpenses: number;
@@ -16,12 +18,20 @@ type Summary = {
   totalAnnualExpenses: number;
   totalAnnualIncome: number;
   rest: number;
+  totalFreibetrag: number;
   byAccount: {
-    account: { id: number; name: string; color: string };
+    account: {
+      id: number;
+      name: string;
+      color: string;
+      freibetrag?: number | null;
+      freibetragYear?: number | null;
+    };
     monthlyExpenses: number;
     monthlyIncome: number;
     rest: number;
     itemCount: number;
+    freibetragMonthly: number;
   }[];
   byCategory: {
     category: { id: number; name: string; color: string };
@@ -98,6 +108,57 @@ export default function Dashboard() {
           bg={summary.rest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
         />
       </div>
+
+      {/* Freibetrag overview — only when at least one account has one */}
+      {summary.totalFreibetrag > 0 && (() => {
+        const pctUsed = Math.min((summary.totalFreibetrag / FREIBETRAG_LIMIT) * 100, 100);
+        const exceeded = summary.totalFreibetrag > FREIBETRAG_LIMIT;
+        const currentYear = new Date().getFullYear();
+        const accountsWithFb = summary.byAccount.filter((a) => a.freibetragMonthly > 0);
+        return (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              {exceeded
+                ? <AlertTriangle size={15} className="text-yellow-400" />
+                : <ShieldCheck size={15} className="text-emerald-400" />}
+              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                Freistellungsauftrag
+              </h3>
+              <span className={`ml-auto text-sm font-semibold ${exceeded ? "text-yellow-400" : "text-white"}`}>
+                {eur(summary.totalFreibetrag)} / {eur(FREIBETRAG_LIMIT)}
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full bg-gray-800 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${exceeded ? "bg-yellow-400" : "bg-emerald-500"}`}
+                style={{ width: `${pctUsed}%` }}
+              />
+            </div>
+
+            {/* Per-account breakdown */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {accountsWithFb.map(({ account, freibetragMonthly }) => {
+                const fbYear = account.freibetragYear;
+                const expired = fbYear != null && fbYear < currentYear;
+                return (
+                  <div key={account.id} className="flex items-center gap-2 text-sm">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
+                    <span className="text-gray-300 truncate">{account.name}</span>
+                    <span className="ml-auto text-gray-400 whitespace-nowrap">
+                      {eur(freibetragMonthly * 12)}/Jahr
+                    </span>
+                    <span className={`text-xs ${expired ? "text-red-400" : "text-gray-600"}`}>
+                      {fbYear != null ? (expired ? `abgel. ${fbYear}` : `bis ${fbYear}`) : "∞"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Per-account cards + Donut chart */}
       <div className="grid grid-cols-2 gap-6">
