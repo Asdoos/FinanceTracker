@@ -54,6 +54,38 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+## Docker
+
+The app builds to a static bundle and is served via nginx.
+`VITE_CONVEX_URL` must be provided at **build time** since Vite embeds it into the bundle.
+
+### Build & run
+
+```bash
+docker build \
+  --build-arg VITE_CONVEX_URL=https://your-deployment.convex.cloud \
+  -t finance-tracker .
+
+docker run -p 8080:80 finance-tracker
+```
+
+Open [http://localhost:8080](http://localhost:8080).
+
+### docker-compose (optional)
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      args:
+        VITE_CONVEX_URL: https://your-deployment.convex.cloud
+    ports:
+      - "8080:80"
+```
+
+> **Note:** The Convex backend runs on Convex's infrastructure — only the frontend is containerized.
+
 ## Project Structure
 
 ```

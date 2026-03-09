@@ -1,0 +1,8 @@
+node_modules
+dist
+.env.local
+.env
+.git
+.claude
+convex/_generated
+convex/seed.ts
