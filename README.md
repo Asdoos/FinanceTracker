@@ -71,7 +71,16 @@ docker run -p 8080:80 finance-tracker
 
 Open [http://localhost:8080](http://localhost:8080).
 
-### docker-compose (optional)
+### docker-compose
+
+Copy the example file and fill in your Convex URL:
+
+```bash
+cp docker-compose.example.yml docker-compose.yml
+# Edit docker-compose.yml and set VITE_CONVEX_URL
+```
+
+`docker-compose.example.yml`:
 
 ```yaml
 services:
@@ -82,7 +91,16 @@ services:
         VITE_CONVEX_URL: https://your-deployment.convex.cloud
     ports:
       - "8080:80"
+    restart: unless-stopped
 ```
+
+Then start with:
+
+```bash
+docker-compose up --build
+```
+
+> **Note:** `docker-compose.yml` is gitignored — it contains your deployment URL. Only the `.example.yml` is committed.
 
 > **Note:** The Convex backend runs on Convex's infrastructure — only the frontend is containerized.
 

@@ -2,6 +2,7 @@ node_modules
 dist
 .env.local
 .env
+docker-compose.yml
 
 # Convex auto-generated files (run `npx convex dev` to generate)
 convex/_generated/
