@@ -1,7 +1,11 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import { createRequire } from "module";
 import { getDb } from "./db";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 import accountsRouter from "./routes/accounts";
 import categoriesRouter from "./routes/categories";
 import expensesRouter from "./routes/expenses";
@@ -31,7 +35,7 @@ app.get("/{*splat}", (_req, res) => {
 // ── Start server (after DB is initialized) ──────────────────────────────────
 getDb().then(() => {
   app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Finance Tracker v${version} — http://localhost:${PORT}`);
   });
 }).catch((err) => {
   console.error("Failed to initialize database:", err);
