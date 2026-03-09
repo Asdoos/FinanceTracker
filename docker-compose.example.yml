@@ -5,8 +5,6 @@ services:
       - "3001:3001"
     volumes:
       - finance-data:/data
-    environment:
-      - DATABASE_PATH=/data/finance.db
     restart: unless-stopped
 
 volumes:
