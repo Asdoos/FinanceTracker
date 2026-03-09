@@ -73,32 +73,21 @@ docker run -p 3001:3001 -v finance-data:/data anri04/finance-tracker
 
 Open [http://localhost:3001](http://localhost:3001).
 
-### docker-compose
+### docker-compose (SQLite)
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
 docker compose up
 ```
 
-`docker-compose.example.yml`:
+### docker-compose (PostgreSQL)
 
-```yaml
-services:
-  finance-tracker:
-    image: anri04/finance-tracker:latest
-    ports:
-      - "3001:3001"
-    volumes:
-      - finance-data:/data
-    environment:
-      - DATABASE_PATH=/data/finance.db
-    restart: unless-stopped
-
-volumes:
-  finance-data:
+```bash
+cp docker-compose.postgres.yml docker-compose.yml
+docker compose up
 ```
 
-> **Note:** `docker-compose.yml` is gitignored. Only the `.example.yml` is committed.
+> **Note:** `docker-compose.yml` is gitignored. Use one of the example files as template.
 
 ### Build locally (optional)
 
@@ -114,43 +103,10 @@ By default the app uses **SQLite** — no setup required, the database file is c
 To use **PostgreSQL** instead, set the `DATABASE_URL` environment variable:
 
 ```bash
-# Local development
 DATABASE_URL=postgresql://user:password@localhost:5432/finance npm run dev:all
 ```
 
 The app detects `DATABASE_URL` at startup and switches automatically. Tables are created on first run for both backends.
-
-### Docker with PostgreSQL
-
-```yaml
-services:
-  finance-tracker:
-    image: anri04/finance-tracker:latest
-    ports:
-      - "3001:3001"
-    environment:
-      - DATABASE_URL=postgresql://finance:finance@postgres:5432/finance
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: finance
-      POSTGRES_PASSWORD: finance
-      POSTGRES_DB: finance
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U finance"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres-data:
-```
 
 ## Project Structure
 
