@@ -4,7 +4,7 @@
 
 <h1 align="center">Finance Tracker</h1>
 
-<p align="center">A personal finance tracker built with React, TypeScript, and Convex.</p>
+<p align="center">A personal finance tracker built with React, TypeScript, Express, and SQLite.</p>
 
 <p align="center">
   <a href="https://hub.docker.com/r/anri04/finance-tracker">
@@ -25,7 +25,8 @@
 ## Tech Stack
 
 - [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/)
-- [Convex](https://www.convex.dev/) — real-time backend & database
+- [Express.js](https://expressjs.com/) — REST API backend
+- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — Embedded SQLite database
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Recharts](https://recharts.org/)
 
@@ -34,99 +35,118 @@
 ### 1. Clone & install dependencies
 
 ```bash
-git clone https://github.com/your-username/finance-tracker.git
-cd finance-tracker
+git clone https://github.com/Asdoos/FinanceTracker.git
+cd FinanceTracker
 npm install
 ```
 
-### 2. Set up Convex
-
-You need a free [Convex account](https://www.convex.dev/).
+### 2. Start the dev servers
 
 ```bash
-npx convex dev
+npm run dev:all
 ```
 
-This will:
-- Open a browser login
-- Create a new Convex project
-- Automatically write `VITE_CONVEX_URL` to `.env.local`
-- Deploy the database schema
-
-### 3. Start the dev server
-
-In a second terminal:
-
-```bash
-npm run dev
-```
+This starts both the **Vite frontend** (port 5173) and the **Express backend** (port 3001) concurrently. The SQLite database is automatically created at `./data/finance.db` on first start.
 
 Open [http://localhost:5173](http://localhost:5173).
 
+> You can also start them individually: `npm run dev` (frontend) and `npm run server` (backend).
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_PATH` | `./data/finance.db` | Path to SQLite database file |
+| `PORT` | `3001` | Express server port |
+
 ## Docker
 
-The image is available on [Docker Hub](https://hub.docker.com/r/anri04/finance-tracker).
-`CONVEX_URL` is injected at **container start** — no rebuild needed.
+The image is available on [Docker Hub](https://hub.docker.com/r/anri04/finance-tracker). Data is persisted via a Docker volume.
 
 ### Pull & run
 
 ```bash
-docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 anri04/finance-tracker
+docker run -p 3001:3001 -v finance-data:/data anri04/finance-tracker
 ```
 
-Open [http://localhost:8080](http://localhost:8080).
+Open [http://localhost:3001](http://localhost:3001).
 
 ### docker-compose
 
-Copy the example file and fill in your Convex URL:
-
 ```bash
 cp docker-compose.example.yml docker-compose.yml
-# Edit docker-compose.yml — set CONVEX_URL
-docker-compose up
+docker compose up
 ```
 
 `docker-compose.example.yml`:
 
 ```yaml
 services:
-  app:
+  finance-tracker:
     image: anri04/finance-tracker:latest
-    environment:
-      CONVEX_URL: https://your-deployment.convex.cloud
     ports:
-      - "8080:80"
+      - "3001:3001"
+    volumes:
+      - finance-data:/data
+    environment:
+      - DATABASE_PATH=/data/finance.db
     restart: unless-stopped
+
+volumes:
+  finance-data:
 ```
 
-> **Note:** `docker-compose.yml` is gitignored — it contains your deployment URL. Only the `.example.yml` is committed.
-
-> **Note:** The Convex backend runs on Convex's infrastructure — only the frontend is containerized.
+> **Note:** `docker-compose.yml` is gitignored. Only the `.example.yml` is committed.
 
 ### Build locally (optional)
 
 ```bash
 docker build -t finance-tracker .
-docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 finance-tracker
+docker run -p 3001:3001 -v finance-data:/data finance-tracker
 ```
 
 ## Project Structure
 
 ```
-convex/           # Backend (Convex functions & schema)
-  schema.ts       # Database schema
-  accounts.ts     # Account queries & mutations
-  categories.ts   # Category queries & mutations
-  expenses.ts     # Expense queries & mutations
-  income.ts       # Income queries & mutations
-  summary.ts      # Dashboard summary query
+server/               # Backend (Express REST API)
+  db.ts               # SQLite connection & schema migration
+  index.ts            # Express server entry point
+  routes/
+    accounts.ts       # Account CRUD
+    categories.ts     # Category CRUD
+    expenses.ts       # Expense CRUD (with shareOfTotal)
+    income.ts         # Income CRUD
+    summary.ts        # Dashboard aggregation
 
-src/
+src/                  # Frontend (React SPA)
   pages/
-    Dashboard.tsx  # Overview with KPIs and charts
-    Expenses.tsx   # Expense table with filters
-    Income.tsx     # Income management
-    Accounts.tsx   # Account management
+    Dashboard.tsx     # Overview with KPIs and charts
+    Expenses.tsx      # Expense table with filters
+    Income.tsx        # Income management
+    Accounts.tsx      # Account management
   lib/
-    format.ts      # EUR and % formatters
+    api.ts            # REST client & useApi hook
+    format.ts         # EUR and % formatters
 ```
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/accounts` | List all accounts |
+| `POST` | `/api/accounts` | Create account |
+| `PATCH` | `/api/accounts/:id` | Update account |
+| `DELETE` | `/api/accounts/:id` | Delete account (checks references) |
+| `GET` | `/api/categories` | List all categories |
+| `POST` | `/api/categories` | Create category |
+| `PATCH` | `/api/categories/:id` | Update category |
+| `DELETE` | `/api/categories/:id` | Delete category (checks references) |
+| `GET` | `/api/expenses` | List expenses (enriched with category/account) |
+| `POST` | `/api/expenses` | Create expense |
+| `PATCH` | `/api/expenses/:id` | Update expense |
+| `DELETE` | `/api/expenses/:id` | Delete expense |
+| `GET` | `/api/income` | List income sources |
+| `POST` | `/api/income` | Create income |
+| `PATCH` | `/api/income/:id` | Update income |
+| `DELETE` | `/api/income/:id` | Delete income |
+| `GET` | `/api/summary` | Dashboard aggregation |
