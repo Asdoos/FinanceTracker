@@ -1,6 +1,10 @@
-# Finance Tracker
+<p align="center">
+  <img src="public/logo.svg" width="96" height="96" alt="Finance Tracker Logo"/>
+</p>
 
-A personal finance tracker built with React, TypeScript, and Convex. Track monthly and annual expenses across multiple bank accounts, categorize costs, and get a real-time dashboard overview.
+<h1 align="center">Finance Tracker</h1>
+
+<p align="center">A personal finance tracker built with React, TypeScript, and Convex.</p> Track monthly and annual expenses across multiple bank accounts, categorize costs, and get a real-time dashboard overview.
 
 ## Features
 
