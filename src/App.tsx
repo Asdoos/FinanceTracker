@@ -44,11 +44,14 @@ export default function App() {
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-          <div className="px-5 py-5 border-b border-gray-800">
-            <h1 className="text-lg font-bold text-white tracking-tight">
-              Finance Tracker
-            </h1>
-            <p className="text-xs text-gray-500 mt-0.5">Übersicht & Verwaltung</p>
+          <div className="px-4 py-4 border-b border-gray-800 flex items-center gap-3">
+            <img src="/logo.svg" alt="Logo" className="w-9 h-9 rounded-lg flex-shrink-0" />
+            <div>
+              <h1 className="text-sm font-bold text-white tracking-tight leading-tight">
+                Finance Tracker
+              </h1>
+              <p className="text-xs text-gray-500 leading-tight">Übersicht & Verwaltung</p>
+            </div>
           </div>
           <nav className="flex-1 px-3 py-4 space-y-1">
             {nav.map(({ to, icon: Icon, label }) => (
