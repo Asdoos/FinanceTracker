@@ -1,6 +1,6 @@
 services:
   app:
-    image: asdoos/finance-tracker:latest
+    image: anri04/finance-tracker:latest
     environment:
       CONVEX_URL: https://your-deployment.convex.cloud
     ports:

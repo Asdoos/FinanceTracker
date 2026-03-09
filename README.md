@@ -7,8 +7,8 @@
 <p align="center">A personal finance tracker built with React, TypeScript, and Convex.</p>
 
 <p align="center">
-  <a href="https://hub.docker.com/r/asdoos/finance-tracker">
-    <img src="https://img.shields.io/docker/v/asdoos/finance-tracker?label=Docker%20Hub&logo=docker&color=0ea5e9" alt="Docker Hub"/>
+  <a href="https://hub.docker.com/r/anri04/finance-tracker">
+    <img src="https://img.shields.io/docker/v/anri04/finance-tracker?label=Docker%20Hub&logo=docker&color=0ea5e9" alt="Docker Hub"/>
   </a>
   <a href="https://github.com/Asdoos/FinanceTracker/actions/workflows/docker-publish.yml">
     <img src="https://github.com/Asdoos/FinanceTracker/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status"/>
@@ -65,13 +65,13 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Docker
 
-The image is available on [Docker Hub](https://hub.docker.com/r/asdoos/finance-tracker).
+The image is available on [Docker Hub](https://hub.docker.com/r/anri04/finance-tracker).
 `CONVEX_URL` is injected at **container start** — no rebuild needed.
 
 ### Pull & run
 
 ```bash
-docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 asdoos/finance-tracker
+docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 anri04/finance-tracker
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
@@ -91,7 +91,7 @@ docker-compose up
 ```yaml
 services:
   app:
-    image: asdoos/finance-tracker:latest
+    image: anri04/finance-tracker:latest
     environment:
       CONVEX_URL: https://your-deployment.convex.cloud
     ports:
