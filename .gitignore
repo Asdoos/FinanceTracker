@@ -4,8 +4,8 @@ dist
 .env
 docker-compose.yml
 
-# Convex auto-generated files (run `npx convex dev` to generate)
-convex/_generated/
+# Convex auto-generated files (run `npx convex dev` to regenerate)
+# convex/_generated/ — stubs are committed for CI/Docker builds
 
 # Personal seed data
 convex/seed.ts
