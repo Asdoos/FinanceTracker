@@ -1,8 +1,13 @@
 services:
-  app:
+  finance-tracker:
     image: anri04/finance-tracker:latest
-    environment:
-      CONVEX_URL: https://your-deployment.convex.cloud
     ports:
-      - "8080:80"
+      - "3001:3001"
+    volumes:
+      - finance-data:/data
+    environment:
+      - DATABASE_PATH=/data/finance.db
     restart: unless-stopped
+
+volumes:
+  finance-data:

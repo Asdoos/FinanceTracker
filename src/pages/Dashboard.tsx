@@ -1,5 +1,4 @@
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { useApi } from "../lib/api";
 import { eur, pct } from "../lib/format";
 import {
   PieChart,
@@ -11,11 +10,37 @@ import {
 } from "recharts";
 import { TrendingDown, TrendingUp, Wallet } from "lucide-react";
 
-export default function Dashboard() {
-  const summary = useQuery(api.summary.get);
-  const seed = useMutation(api.seed.run);
+type Summary = {
+  totalMonthlyExpenses: number;
+  totalMonthlyIncome: number;
+  totalAnnualExpenses: number;
+  totalAnnualIncome: number;
+  rest: number;
+  byAccount: {
+    account: { id: number; name: string; color: string };
+    monthlyExpenses: number;
+    monthlyIncome: number;
+    rest: number;
+    itemCount: number;
+  }[];
+  byCategory: {
+    category: { id: number; name: string; color: string };
+    monthly: number;
+    share: number;
+    itemCount: number;
+  }[];
+  expenses: {
+    id: number;
+    label: string;
+    monthlyAmount: number;
+    shareOfTotal: number;
+  }[];
+};
 
-  if (summary === undefined) {
+export default function Dashboard() {
+  const { data: summary, loading } = useApi<Summary>("/summary");
+
+  if (loading || !summary) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         Lade...
@@ -23,17 +48,13 @@ export default function Dashboard() {
     );
   }
 
-  // Seed on first load if nothing exists
   if (summary.expenses.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-gray-400">Keine Daten vorhanden.</p>
-        <button
-          onClick={() => seed({})}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
-        >
-          Beispieldaten laden (aus Excel)
-        </button>
+        <p className="text-sm text-gray-500">
+          Erstelle Konten, Kategorien und Ausgaben über die Navigation.
+        </p>
       </div>
     );
   }
@@ -89,7 +110,7 @@ export default function Dashboard() {
             .filter((a) => a.monthlyExpenses > 0 || a.monthlyIncome > 0)
             .map(({ account, monthlyExpenses, monthlyIncome, rest, itemCount }) => (
               <div
-                key={account._id}
+                key={account.id}
                 className="bg-gray-900 border border-gray-800 rounded-xl p-4"
               >
                 <div className="flex items-center gap-2 mb-3">
@@ -181,12 +202,12 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {summary.byCategory
+            {[...summary.byCategory]
               .filter((c) => c.monthly > 0)
               .sort((a, b) => b.monthly - a.monthly)
               .map(({ category, monthly, share }) => (
                 <tr
-                  key={category._id}
+                  key={category.id}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30"
                 >
                   <td className="px-4 py-3 flex items-center gap-2">

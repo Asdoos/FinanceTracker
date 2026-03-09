@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
+import { useApi, api } from "../lib/api";
 import { eur, pct } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 
 type ExpenseItem = {
-  _id: Id<"expense_items">;
+  id: number;
   label: string;
   amount: number;
   type: "monthly" | "annual";
@@ -14,24 +12,24 @@ type ExpenseItem = {
   shareOfTotal: number;
   isActive: boolean;
   note?: string;
-  category: { _id: Id<"categories">; name: string; color: string } | null;
-  account: { _id: Id<"accounts">; name: string; color: string } | null;
-  categoryId: Id<"categories">;
-  accountId: Id<"accounts">;
+  category: { id: number; name: string; color: string } | null;
+  account: { id: number; name: string; color: string } | null;
+  categoryId: number;
+  accountId: number;
 };
 
+type Account = { id: number; name: string; color: string };
+type Category = { id: number; name: string; color: string };
+
 export default function Expenses() {
-  const expenses = useQuery(api.expenses.list) as ExpenseItem[] | undefined;
-  const accounts = useQuery(api.accounts.list);
-  const categories = useQuery(api.categories.list);
-  const addExpense = useMutation(api.expenses.add);
-  const updateExpense = useMutation(api.expenses.update);
-  const removeExpense = useMutation(api.expenses.remove);
+  const { data: expenses, refetch: refetchExpenses } = useApi<ExpenseItem[]>("/expenses");
+  const { data: accounts } = useApi<Account[]>("/accounts");
+  const { data: categories } = useApi<Category[]>("/categories");
 
   const [filterAccount, setFilterAccount] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState<Id<"expense_items"> | null>(null);
+  const [editItem, setEditItem] = useState<ExpenseItem | null>(null);
 
   const [form, setForm] = useState({
     label: "",
@@ -39,6 +37,7 @@ export default function Expenses() {
     type: "monthly" as "monthly" | "annual",
     categoryId: "",
     accountId: "",
+    isActive: true,
     note: "",
   });
 
@@ -51,8 +50,8 @@ export default function Expenses() {
   }
 
   const filtered = expenses.filter((e) => {
-    if (filterAccount !== "all" && e.accountId !== filterAccount) return false;
-    if (filterCategory !== "all" && e.categoryId !== filterCategory) return false;
+    if (filterAccount !== "all" && String(e.accountId) !== filterAccount) return false;
+    if (filterCategory !== "all" && String(e.categoryId) !== filterCategory) return false;
     return true;
   });
 
@@ -63,11 +62,12 @@ export default function Expenses() {
       label: "",
       amount: "",
       type: "monthly",
-      categoryId: categories![0]?._id ?? "",
-      accountId: accounts![0]?._id ?? "",
+      categoryId: String(categories![0]?.id ?? ""),
+      accountId: String(accounts![0]?.id ?? ""),
+      isActive: true,
       note: "",
     });
-    setEditId(null);
+    setEditItem(null);
     setShowAdd(true);
   }
 
@@ -76,11 +76,12 @@ export default function Expenses() {
       label: e.label,
       amount: String(e.amount),
       type: e.type,
-      categoryId: e.categoryId,
-      accountId: e.accountId,
+      categoryId: String(e.categoryId),
+      accountId: String(e.accountId),
+      isActive: e.isActive,
       note: e.note ?? "",
     });
-    setEditId(e._id);
+    setEditItem(e);
     setShowAdd(true);
   }
 
@@ -90,17 +91,24 @@ export default function Expenses() {
       label: form.label,
       amount: parseFloat(form.amount),
       type: form.type,
-      categoryId: form.categoryId as Id<"categories">,
-      accountId: form.accountId as Id<"accounts">,
-      isActive: true,
+      categoryId: parseInt(form.categoryId),
+      accountId: parseInt(form.accountId),
+      isActive: form.isActive,
       note: form.note || undefined,
     };
-    if (editId) {
-      await updateExpense({ id: editId, ...payload });
+    if (editItem) {
+      await api.patch(`/expenses/${editItem.id}`, payload);
     } else {
-      await addExpense(payload);
+      await api.post("/expenses", payload);
     }
     setShowAdd(false);
+    refetchExpenses();
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm("Diese Ausgabe wirklich löschen?")) return;
+    await api.delete(`/expenses/${id}`);
+    refetchExpenses();
   }
 
   return (
@@ -124,7 +132,7 @@ export default function Expenses() {
         >
           <option value="all">Alle Konten</option>
           {accounts.map((a) => (
-            <option key={a._id} value={a._id}>
+            <option key={a.id} value={String(a.id)}>
               {a.name}
             </option>
           ))}
@@ -136,7 +144,7 @@ export default function Expenses() {
         >
           <option value="all">Alle Kategorien</option>
           {categories.map((c) => (
-            <option key={c._id} value={c._id}>
+            <option key={c.id} value={String(c.id)}>
               {c.name}
             </option>
           ))}
@@ -161,12 +169,12 @@ export default function Expenses() {
             </tr>
           </thead>
           <tbody>
-            {filtered
+            {[...filtered]
               .sort((a, b) => b.monthlyAmount - a.monthlyAmount)
               .map((e) => (
                 <tr
-                  key={e._id}
-                  className="border-b border-gray-800/50 hover:bg-gray-800/30"
+                  key={e.id}
+                  className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${!e.isActive ? "opacity-50" : ""}`}
                 >
                   <td className="px-4 py-3">
                     <div className="font-medium text-white">{e.label}</div>
@@ -223,7 +231,7 @@ export default function Expenses() {
                         <Pencil size={13} />
                       </button>
                       <button
-                        onClick={() => removeExpense({ id: e._id })}
+                        onClick={() => handleDelete(e.id)}
                         className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                       >
                         <Trash2 size={13} />
@@ -242,7 +250,7 @@ export default function Expenses() {
           <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">
-                {editId ? "Ausgabe bearbeiten" : "Ausgabe hinzufügen"}
+                {editItem ? "Ausgabe bearbeiten" : "Ausgabe hinzufügen"}
               </h3>
               <button
                 onClick={() => setShowAdd(false)}
@@ -297,7 +305,7 @@ export default function Expenses() {
               >
                 <option value="">Konto wählen...</option>
                 {accounts.map((a) => (
-                  <option key={a._id} value={a._id}>
+                  <option key={a.id} value={String(a.id)}>
                     {a.name}
                   </option>
                 ))}
@@ -314,7 +322,7 @@ export default function Expenses() {
               >
                 <option value="">Kategorie wählen...</option>
                 {categories.map((c) => (
-                  <option key={c._id} value={c._id}>
+                  <option key={c.id} value={String(c.id)}>
                     {c.name}
                   </option>
                 ))}
@@ -330,6 +338,20 @@ export default function Expenses() {
               />
             </Field>
 
+            {editItem && (
+              <Field label="Status">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.isActive}
+                    onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                  />
+                  Aktiv
+                </label>
+              </Field>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setShowAdd(false)}
@@ -342,7 +364,7 @@ export default function Expenses() {
                 className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
               >
                 <Check size={15} />
-                {editId ? "Speichern" : "Hinzufügen"}
+                {editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

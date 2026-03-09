@@ -1,37 +1,35 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
+import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 
 type IncomeItem = {
-  _id: Id<"income_sources">;
+  id: number;
   label: string;
   amount: number;
   type: "monthly" | "annual";
   monthlyAmount: number;
   isActive: boolean;
   note?: string;
-  account: { _id: Id<"accounts">; name: string; color: string } | null;
-  accountId: Id<"accounts">;
+  account: { id: number; name: string; color: string } | null;
+  accountId: number;
 };
 
+type Account = { id: number; name: string; color: string };
+
 export default function Income() {
-  const incomes = useQuery(api.income.list) as IncomeItem[] | undefined;
-  const accounts = useQuery(api.accounts.list);
-  const addIncome = useMutation(api.income.add);
-  const updateIncome = useMutation(api.income.update);
-  const removeIncome = useMutation(api.income.remove);
+  const { data: incomes, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income");
+  const { data: accounts } = useApi<Account[]>("/accounts");
 
   const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState<Id<"income_sources"> | null>(null);
+  const [editItem, setEditItem] = useState<IncomeItem | null>(null);
 
   const [form, setForm] = useState({
     label: "",
     amount: "",
     type: "monthly" as "monthly" | "annual",
     accountId: "",
+    isActive: true,
     note: "",
   });
 
@@ -52,10 +50,11 @@ export default function Income() {
       label: "",
       amount: "",
       type: "monthly",
-      accountId: accounts![0]?._id ?? "",
+      accountId: String(accounts![0]?.id ?? ""),
+      isActive: true,
       note: "",
     });
-    setEditId(null);
+    setEditItem(null);
     setShowAdd(true);
   }
 
@@ -64,10 +63,11 @@ export default function Income() {
       label: item.label,
       amount: String(item.amount),
       type: item.type,
-      accountId: item.accountId,
+      accountId: String(item.accountId),
+      isActive: item.isActive,
       note: item.note ?? "",
     });
-    setEditId(item._id);
+    setEditItem(item);
     setShowAdd(true);
   }
 
@@ -77,16 +77,23 @@ export default function Income() {
       label: form.label,
       amount: parseFloat(form.amount),
       type: form.type,
-      accountId: form.accountId as Id<"accounts">,
-      isActive: true,
+      accountId: parseInt(form.accountId),
+      isActive: form.isActive,
       note: form.note || undefined,
     };
-    if (editId) {
-      await updateIncome({ id: editId, ...payload });
+    if (editItem) {
+      await api.patch(`/income/${editItem.id}`, payload);
     } else {
-      await addIncome(payload);
+      await api.post("/income", payload);
     }
     setShowAdd(false);
+    refetchIncomes();
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm("Diese Einnahme wirklich löschen?")) return;
+    await api.delete(`/income/${id}`);
+    refetchIncomes();
   }
 
   return (
@@ -122,12 +129,12 @@ export default function Income() {
             </tr>
           </thead>
           <tbody>
-            {incomes
+            {[...incomes]
               .sort((a, b) => b.monthlyAmount - a.monthlyAmount)
               .map((item) => (
                 <tr
-                  key={item._id}
-                  className="border-b border-gray-800/50 hover:bg-gray-800/30"
+                  key={item.id}
+                  className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${!item.isActive ? "opacity-50" : ""}`}
                 >
                   <td className="px-4 py-3">
                     <div className="font-medium text-white">{item.label}</div>
@@ -167,7 +174,7 @@ export default function Income() {
                         <Pencil size={13} />
                       </button>
                       <button
-                        onClick={() => removeIncome({ id: item._id })}
+                        onClick={() => handleDelete(item.id)}
                         className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                       >
                         <Trash2 size={13} />
@@ -185,7 +192,7 @@ export default function Income() {
           <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">
-                {editId ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}
+                {editItem ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}
               </h3>
               <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-800 rounded">
                 <X size={18} className="text-gray-400" />
@@ -237,7 +244,7 @@ export default function Income() {
               >
                 <option value="">Konto wählen...</option>
                 {accounts.map((a) => (
-                  <option key={a._id} value={a._id}>{a.name}</option>
+                  <option key={a.id} value={String(a.id)}>{a.name}</option>
                 ))}
               </select>
             </div>
@@ -251,6 +258,20 @@ export default function Income() {
               />
             </div>
 
+            {editItem && (
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.isActive}
+                    onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                  />
+                  Aktiv
+                </label>
+              </div>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setShowAdd(false)}
@@ -263,7 +284,7 @@ export default function Income() {
                 className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
               >
                 <Check size={15} />
-                {editId ? "Speichern" : "Hinzufügen"}
+                {editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

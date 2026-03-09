@@ -4,4 +4,5 @@ dist
 .env
 .git
 .claude
-convex/seed.ts
+data/
+*.db

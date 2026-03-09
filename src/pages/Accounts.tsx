@@ -1,9 +1,27 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { Id } from "../../convex/_generated/dataModel";
+import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
+
+type Account = {
+  id: number;
+  name: string;
+  color: string;
+  description?: string;
+  isDefault: boolean;
+};
+
+type AccountSummary = {
+  account: { id: number; name: string; color: string };
+  monthlyExpenses: number;
+  monthlyIncome: number;
+  rest: number;
+  itemCount: number;
+};
+
+type Summary = {
+  byAccount: AccountSummary[];
+};
 
 const PRESET_COLORS = [
   "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b",
@@ -11,14 +29,11 @@ const PRESET_COLORS = [
 ];
 
 export default function Accounts() {
-  const accounts = useQuery(api.accounts.list);
-  const summary = useQuery(api.summary.get);
-  const addAccount = useMutation(api.accounts.add);
-  const updateAccount = useMutation(api.accounts.update);
-  const removeAccount = useMutation(api.accounts.remove);
+  const { data: accounts, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
+  const { data: summary, refetch: refetchSummary } = useApi<Summary>("/summary");
 
   const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState<Id<"accounts"> | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({
     name: "",
     color: "#3b82f6",
@@ -34,7 +49,7 @@ export default function Accounts() {
   }
 
   const accSummaryMap = Object.fromEntries(
-    summary.byAccount.map((b) => [b.account._id, b])
+    summary.byAccount.map((b) => [b.account.id, b])
   );
 
   function openAdd() {
@@ -43,9 +58,9 @@ export default function Accounts() {
     setShowAdd(true);
   }
 
-  function openEdit(a: { _id: Id<"accounts">; name: string; color: string; description?: string }) {
+  function openEdit(a: Account) {
     setForm({ name: a.name, color: a.color, description: a.description ?? "" });
-    setEditId(a._id);
+    setEditId(a.id);
     setShowAdd(true);
   }
 
@@ -57,11 +72,24 @@ export default function Accounts() {
       description: form.description || undefined,
     };
     if (editId) {
-      await updateAccount({ id: editId, ...payload });
+      await api.patch(`/accounts/${editId}`, payload);
     } else {
-      await addAccount(payload);
+      await api.post("/accounts", payload);
     }
     setShowAdd(false);
+    refetchAccounts();
+    refetchSummary();
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm("Dieses Konto wirklich löschen?")) return;
+    try {
+      await api.delete(`/accounts/${id}`);
+      refetchAccounts();
+      refetchSummary();
+    } catch (err: any) {
+      alert(err.message);
+    }
   }
 
   return (
@@ -78,10 +106,10 @@ export default function Accounts() {
 
       <div className="grid grid-cols-2 gap-4">
         {accounts.map((account) => {
-          const s = accSummaryMap[account._id];
+          const s = accSummaryMap[account.id];
           return (
             <div
-              key={account._id}
+              key={account.id}
               className="bg-gray-900 border border-gray-800 rounded-xl p-5"
             >
               <div className="flex items-start justify-between mb-4">
@@ -107,7 +135,7 @@ export default function Accounts() {
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={() => removeAccount({ id: account._id })}
+                    onClick={() => handleDelete(account.id)}
                     className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                   >
                     <Trash2 size={14} />

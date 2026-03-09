@@ -3,30 +3,51 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Native dependencies for better-sqlite3
+RUN apk add --no-cache python3 make g++
+
 # Install dependencies first (better layer caching)
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Build with a placeholder — replaced at runtime by entrypoint.sh
-ENV VITE_CONVEX_URL=__CONVEX_URL_PLACEHOLDER__
-
+# Copy source and build frontend
 COPY . .
-# Skip tsc type-checking in CI — stubs cause false positives
 RUN npx vite build
 
-# ── Stage 2: Serve ─────────────────────────────────────────────────────────────
-FROM nginx:alpine AS runner
+# Prune dev dependencies for smaller production image
+RUN npm prune --production
 
-# Copy built assets
-COPY --from=builder /app/dist /usr/share/nginx/html
+# ── Stage 2: Run ──────────────────────────────────────────────────────────────
+FROM node:22-alpine AS runner
 
-# SPA routing: redirect all 404s back to index.html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Runtime injection script
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Native dependencies needed at runtime for better-sqlite3
+RUN apk add --no-cache libstdc++
 
-EXPOSE 80
+# Copy production node_modules (with native better-sqlite3 binary)
+COPY --from=builder /app/node_modules ./node_modules
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Copy built frontend
+COPY --from=builder /app/dist ./dist
+
+# Copy server source (will be run via tsx or compiled)
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/package.json ./
+
+# Create data directory for SQLite
+RUN mkdir -p /data
+
+ENV NODE_ENV=production
+ENV DATABASE_PATH=/data/finance.db
+ENV PORT=3001
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD wget -q --spider http://localhost:3001/api/summary || exit 1
+
+# Install tsx globally for running TypeScript server
+RUN npm install -g tsx
+
+CMD ["tsx", "server/index.ts"]
