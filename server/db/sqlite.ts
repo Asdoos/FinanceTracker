@@ -30,6 +30,7 @@ const SCHEMA = `
     account_id INTEGER NOT NULL REFERENCES accounts(id),
     is_active INTEGER NOT NULL DEFAULT 1,
     note TEXT,
+    end_date TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -55,6 +56,9 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+
+  // Migrations for existing databases
+  try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

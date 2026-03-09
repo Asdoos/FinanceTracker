@@ -19,7 +19,10 @@ router.get("/", async (_req, res) => {
   const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
 
   // ── Monthly totals ──
-  const activeExpenses = expenses.filter((e: any) => e.is_active);
+  const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const activeExpenses = expenses.filter((e: any) =>
+    e.is_active && (!e.end_date || e.end_date >= today)
+  );
   const activeIncomes = incomes.filter((i: any) => i.is_active);
 
   const totalMonthlyExpenses = activeExpenses.reduce(

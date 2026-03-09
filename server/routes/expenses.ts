@@ -40,6 +40,7 @@ router.get("/", async (_req, res) => {
         accountId: r.account_id,
         isActive: !!r.is_active,
         note: r.note || undefined,
+        endDate: r.end_date || null,
         monthlyAmount,
         shareOfTotal:
           totalMonthly > 0 ? (monthlyAmount / totalMonthly) * 100 : 0,
@@ -56,15 +57,15 @@ router.get("/", async (_req, res) => {
 
 // POST /api/expenses
 router.post("/", async (req, res) => {
-  const { label, amount, type, categoryId, accountId, isActive, note } = req.body;
+  const { label, amount, type, categoryId, accountId, isActive, note, endDate } = req.body;
   if (!label || amount == null || !type || !categoryId || !accountId) {
     return res.status(400).json({ error: "Missing required fields" });
   }
   const db = await getDb();
   const result = await db.run(
-    `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null]
+    `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null]
   );
   res.status(201).json({ id: result.lastId });
 });
@@ -72,7 +73,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/expenses/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { label, amount, type, categoryId, accountId, isActive, note } = req.body;
+  const { label, amount, type, categoryId, accountId, isActive, note, endDate } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);
@@ -88,6 +89,7 @@ router.patch("/:id", async (req, res) => {
   if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
   if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
   if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
+  if (endDate !== undefined) { fields.push("end_date = ?"); values.push(endDate || null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

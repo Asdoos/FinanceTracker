@@ -12,6 +12,7 @@ type ExpenseItem = {
   shareOfTotal: number;
   isActive: boolean;
   note?: string;
+  endDate?: string | null;
   category: { id: number; name: string; color: string } | null;
   account: { id: number; name: string; color: string } | null;
   categoryId: number;
@@ -40,6 +41,7 @@ export default function Expenses() {
     accountId: "",
     isActive: true,
     note: "",
+    endDate: "",
   });
 
   // Group by category — computed before early return to avoid hooks-after-conditional-return
@@ -99,6 +101,7 @@ export default function Expenses() {
       accountId: String(accounts![0]?.id ?? ""),
       isActive: true,
       note: "",
+      endDate: "",
     });
     setEditItem(null);
     setShowAdd(true);
@@ -113,6 +116,7 @@ export default function Expenses() {
       accountId: String(e.accountId),
       isActive: e.isActive,
       note: e.note ?? "",
+      endDate: e.endDate ?? "",
     });
     setEditItem(e);
     setShowAdd(true);
@@ -128,6 +132,7 @@ export default function Expenses() {
       accountId: parseInt(form.accountId),
       isActive: form.isActive,
       note: form.note || undefined,
+      endDate: form.endDate || null,
     };
     if (editItem) {
       await api.patch(`/expenses/${editItem.id}`, payload);
@@ -251,6 +256,16 @@ export default function Expenses() {
                         <td className="px-4 py-3">
                           <div className="font-medium text-white">{e.label}</div>
                           {e.note && <div className="text-xs text-gray-500">{e.note}</div>}
+                          {e.endDate && (() => {
+                            const today = new Date().toISOString().slice(0, 10);
+                            const expired = e.endDate < today;
+                            const formatted = new Date(e.endDate + "T00:00:00").toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+                            return (
+                              <div className={`text-xs mt-0.5 ${expired ? "text-red-400" : "text-gray-500"}`}>
+                                {expired ? `abgelaufen ${formatted}` : `bis ${formatted}`}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           {e.account && (
@@ -395,6 +410,15 @@ export default function Expenses() {
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                 className="input"
                 placeholder="Kurze Anmerkung..."
+              />
+            </Field>
+
+            <Field label="Enddatum (optional)">
+              <input
+                type="date"
+                value={form.endDate}
+                onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+                className="input"
               />
             </Field>
 
