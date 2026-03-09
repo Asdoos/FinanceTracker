@@ -4,5 +4,4 @@ dist
 .env
 .git
 .claude
-convex/_generated
 convex/seed.ts
