@@ -1,14 +1,12 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import { getDb } from "./db";
 import accountsRouter from "./routes/accounts";
 import categoriesRouter from "./routes/categories";
 import expensesRouter from "./routes/expenses";
 import incomeRouter from "./routes/income";
 import summaryRouter from "./routes/summary";
-
-// Import db to trigger schema migration on startup
-import "./db";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -30,6 +28,12 @@ app.get("/{*splat}", (_req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// ── Start server (after DB is initialized) ──────────────────────────────────
+getDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}).catch((err) => {
+  console.error("Failed to initialize database:", err);
+  process.exit(1);
 });

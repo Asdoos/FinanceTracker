@@ -1,38 +1,36 @@
 import { Router } from "express";
-import db from "../db";
+import { getDb } from "../db";
 
 const router = Router();
 
 // GET /api/expenses
-router.get("/", (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT
-         e.*,
-         c.name  AS cat_name,
-         c.color AS cat_color,
-         a.name  AS acc_name,
-         a.color AS acc_color
-       FROM expense_items e
-       LEFT JOIN categories c ON c.id = e.category_id
-       LEFT JOIN accounts   a ON a.id = e.account_id
-       ORDER BY e.id`
-    )
-    .all() as any[];
+router.get("/", async (_req, res) => {
+  const db = await getDb();
+  const { rows } = await db.query(
+    `SELECT
+       e.*,
+       c.name  AS cat_name,
+       c.color AS cat_color,
+       a.name  AS acc_name,
+       a.color AS acc_color
+     FROM expense_items e
+     LEFT JOIN categories c ON c.id = e.category_id
+     LEFT JOIN accounts   a ON a.id = e.account_id
+     ORDER BY e.id`
+  );
 
   // Compute total for shareOfTotal
   const totalMonthly = rows
-    .filter((r) => r.is_active)
+    .filter((r: any) => r.is_active)
     .reduce(
-      (sum, r) =>
+      (sum: number, r: any) =>
         sum + (r.type === "annual" ? r.amount / 12 : r.amount),
       0
     );
 
   res.json(
-    rows.map((r) => {
-      const monthlyAmount =
-        r.type === "annual" ? r.amount / 12 : r.amount;
+    rows.map((r: any) => {
+      const monthlyAmount = r.type === "annual" ? r.amount / 12 : r.amount;
       return {
         id: r.id,
         label: r.label,
@@ -57,39 +55,28 @@ router.get("/", (_req, res) => {
 });
 
 // POST /api/expenses
-router.post("/", (req, res) => {
-  const { label, amount, type, categoryId, accountId, isActive, note } =
-    req.body;
+router.post("/", async (req, res) => {
+  const { label, amount, type, categoryId, accountId, isActive, note } = req.body;
   if (!label || amount == null || !type || !categoryId || !accountId) {
     return res.status(400).json({ error: "Missing required fields" });
   }
-  const result = db
-    .prepare(
-      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      label,
-      amount,
-      type,
-      categoryId,
-      accountId,
-      isActive !== undefined ? (isActive ? 1 : 0) : 1,
-      note || null
-    );
-  res.status(201).json({ id: result.lastInsertRowid });
+  const db = await getDb();
+  const result = await db.run(
+    `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null]
+  );
+  res.status(201).json({ id: result.lastId });
 });
 
 // PATCH /api/expenses/:id
-router.patch("/:id", (req, res) => {
+router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { label, amount, type, categoryId, accountId, isActive, note } =
-    req.body;
+  const { label, amount, type, categoryId, accountId, isActive, note } = req.body;
 
-  const existing = db
-    .prepare("SELECT id FROM expense_items WHERE id = ?")
-    .get(id);
-  if (!existing) return res.status(404).json({ error: "Expense not found" });
+  const db = await getDb();
+  const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);
+  if (rows.length === 0) return res.status(404).json({ error: "Expense not found" });
 
   const fields: string[] = [];
   const values: any[] = [];
@@ -102,22 +89,20 @@ router.patch("/:id", (req, res) => {
   if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
   if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
 
-  if (fields.length === 0)
-    return res.status(400).json({ error: "No fields to update" });
+  if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-  db.prepare(
-    `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ?`
-  ).run(...values, id);
+  await db.run(
+    `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ?`,
+    [...values, id]
+  );
   res.json({ ok: true });
 });
 
 // DELETE /api/expenses/:id
-router.delete("/:id", (req, res) => {
-  const result = db
-    .prepare("DELETE FROM expense_items WHERE id = ?")
-    .run(req.params.id);
-  if (result.changes === 0)
-    return res.status(404).json({ error: "Expense not found" });
+router.delete("/:id", async (req, res) => {
+  const db = await getDb();
+  const result = await db.run("DELETE FROM expense_items WHERE id = ?", [req.params.id]);
+  if (result.changes === 0) return res.status(404).json({ error: "Expense not found" });
   res.json({ ok: true });
 });
 

@@ -1,24 +1,23 @@
 import { Router } from "express";
-import db from "../db";
+import { getDb } from "../db";
 
 const router = Router();
 
 // GET /api/income
-router.get("/", (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT
-         i.*,
-         a.name  AS acc_name,
-         a.color AS acc_color
-       FROM income_sources i
-       LEFT JOIN accounts a ON a.id = i.account_id
-       ORDER BY i.id`
-    )
-    .all() as any[];
+router.get("/", async (_req, res) => {
+  const db = await getDb();
+  const { rows } = await db.query(
+    `SELECT
+       i.*,
+       a.name  AS acc_name,
+       a.color AS acc_color
+     FROM income_sources i
+     LEFT JOIN accounts a ON a.id = i.account_id
+     ORDER BY i.id`
+  );
 
   res.json(
-    rows.map((r) => ({
+    rows.map((r: any) => ({
       id: r.id,
       label: r.label,
       amount: r.amount,
@@ -35,36 +34,28 @@ router.get("/", (_req, res) => {
 });
 
 // POST /api/income
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const { label, amount, type, accountId, isActive, note } = req.body;
   if (!label || amount == null || !type || !accountId) {
     return res.status(400).json({ error: "Missing required fields" });
   }
-  const result = db
-    .prepare(
-      `INSERT INTO income_sources (label, amount, type, account_id, is_active, note)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      label,
-      amount,
-      type,
-      accountId,
-      isActive !== undefined ? (isActive ? 1 : 0) : 1,
-      note || null
-    );
-  res.status(201).json({ id: result.lastInsertRowid });
+  const db = await getDb();
+  const result = await db.run(
+    `INSERT INTO income_sources (label, amount, type, account_id, is_active, note)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null]
+  );
+  res.status(201).json({ id: result.lastId });
 });
 
 // PATCH /api/income/:id
-router.patch("/:id", (req, res) => {
+router.patch("/:id", async (req, res) => {
   const { id } = req.params;
   const { label, amount, type, accountId, isActive, note } = req.body;
 
-  const existing = db
-    .prepare("SELECT id FROM income_sources WHERE id = ?")
-    .get(id);
-  if (!existing) return res.status(404).json({ error: "Income not found" });
+  const db = await getDb();
+  const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ?", [id]);
+  if (rows.length === 0) return res.status(404).json({ error: "Income not found" });
 
   const fields: string[] = [];
   const values: any[] = [];
@@ -76,22 +67,20 @@ router.patch("/:id", (req, res) => {
   if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
   if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
 
-  if (fields.length === 0)
-    return res.status(400).json({ error: "No fields to update" });
+  if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-  db.prepare(
-    `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ?`
-  ).run(...values, id);
+  await db.run(
+    `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ?`,
+    [...values, id]
+  );
   res.json({ ok: true });
 });
 
 // DELETE /api/income/:id
-router.delete("/:id", (req, res) => {
-  const result = db
-    .prepare("DELETE FROM income_sources WHERE id = ?")
-    .run(req.params.id);
-  if (result.changes === 0)
-    return res.status(404).json({ error: "Income not found" });
+router.delete("/:id", async (req, res) => {
+  const db = await getDb();
+  const result = await db.run("DELETE FROM income_sources WHERE id = ?", [req.params.id]);
+  if (result.changes === 0) return res.status(404).json({ error: "Income not found" });
   res.json({ ok: true });
 });
 

@@ -1,20 +1,9 @@
 import Database from "better-sqlite3";
 import path from "path";
-
-const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "finance.db");
-
-// Ensure directory exists
 import fs from "fs";
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+import type { DbAdapter, QueryResult } from "./adapter";
 
-const db = new Database(dbPath);
-
-// Performance pragmas
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-
-// ── Schema migration ────────────────────────────────────────────────────────
-db.exec(`
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -54,6 +43,42 @@ db.exec(`
     note TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-`);
+`;
 
-export default db;
+export function createSqliteAdapter(dbPath?: string): DbAdapter {
+  const resolvedPath =
+    dbPath || process.env.DATABASE_PATH || path.join(process.cwd(), "data", "finance.db");
+
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+
+  const db = new Database(resolvedPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.exec(SCHEMA);
+
+  console.log(`[DB] SQLite connected: ${resolvedPath}`);
+
+  return {
+    async query(sql: string, params: any[] = []): Promise<QueryResult> {
+      const rows = db.prepare(sql).all(...params);
+      return { rows, changes: 0, lastId: 0 };
+    },
+
+    async run(sql: string, params: any[] = []): Promise<QueryResult> {
+      const result = db.prepare(sql).run(...params);
+      return {
+        rows: [],
+        changes: result.changes,
+        lastId: Number(result.lastInsertRowid),
+      };
+    },
+
+    async exec(sql: string): Promise<void> {
+      db.exec(sql);
+    },
+
+    async close(): Promise<void> {
+      db.close();
+    },
+  };
+}

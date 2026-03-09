@@ -1,11 +1,12 @@
 import { Router } from "express";
-import db from "../db";
+import { getDb } from "../db";
 
 const router = Router();
 
 // GET /api/categories
-router.get("/", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM categories ORDER BY id").all();
+router.get("/", async (_req, res) => {
+  const db = await getDb();
+  const { rows } = await db.query("SELECT * FROM categories ORDER BY id");
   res.json(
     rows.map((r: any) => ({
       id: r.id,
@@ -17,24 +18,27 @@ router.get("/", (_req, res) => {
 });
 
 // POST /api/categories
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const { name, color, icon } = req.body;
   if (!name || !color) {
     return res.status(400).json({ error: "name and color are required" });
   }
-  const result = db
-    .prepare("INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)")
-    .run(name, color, icon || null);
-  res.status(201).json({ id: result.lastInsertRowid });
+  const db = await getDb();
+  const result = await db.run(
+    "INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)",
+    [name, color, icon || null]
+  );
+  res.status(201).json({ id: result.lastId });
 });
 
 // PATCH /api/categories/:id
-router.patch("/:id", (req, res) => {
+router.patch("/:id", async (req, res) => {
   const { id } = req.params;
   const { name, color, icon } = req.body;
 
-  const existing = db.prepare("SELECT id FROM categories WHERE id = ?").get(id);
-  if (!existing) return res.status(404).json({ error: "Category not found" });
+  const db = await getDb();
+  const { rows } = await db.query("SELECT id FROM categories WHERE id = ?", [id]);
+  if (rows.length === 0) return res.status(404).json({ error: "Category not found" });
 
   const fields: string[] = [];
   const values: any[] = [];
@@ -45,29 +49,29 @@ router.patch("/:id", (req, res) => {
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-  db.prepare(`UPDATE categories SET ${fields.join(", ")} WHERE id = ?`).run(
-    ...values,
-    id
+  await db.run(
+    `UPDATE categories SET ${fields.join(", ")} WHERE id = ?`,
+    [...values, id]
   );
   res.json({ ok: true });
 });
 
 // DELETE /api/categories/:id
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const { id } = req.params;
+  const db = await getDb();
 
-  const expenseCount = db
-    .prepare("SELECT COUNT(*) as c FROM expense_items WHERE category_id = ?")
-    .get(id) as any;
+  const { rows } = await db.query(
+    "SELECT COUNT(*) as c FROM expense_items WHERE category_id = ?", [id]
+  );
 
-  if (expenseCount.c > 0) {
+  if (Number(rows[0].c) > 0) {
     return res.status(409).json({
-      error:
-        "Kategorie kann nicht gelöscht werden, da noch Ausgaben darauf verweisen.",
+      error: "Kategorie kann nicht gelöscht werden, da noch Ausgaben darauf verweisen.",
     });
   }
 
-  const result = db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  const result = await db.run("DELETE FROM categories WHERE id = ?", [id]);
   if (result.changes === 0) return res.status(404).json({ error: "Category not found" });
   res.json({ ok: true });
 });

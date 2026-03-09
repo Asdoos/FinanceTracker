@@ -26,7 +26,8 @@
 
 - [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/)
 - [Express.js](https://expressjs.com/) — REST API backend
-- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — Embedded SQLite database
+- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) — Embedded SQLite database (default)
+- [PostgreSQL](https://www.postgresql.org/) — Optional external database
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Recharts](https://recharts.org/)
 
@@ -57,6 +58,7 @@ Open [http://localhost:5173](http://localhost:5173).
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_PATH` | `./data/finance.db` | Path to SQLite database file |
+| `DATABASE_URL` | — | PostgreSQL connection string (if set, SQLite is ignored) |
 | `PORT` | `3001` | Express server port |
 
 ## Docker
