@@ -98,6 +98,8 @@ All pages manage their own CRUD modals locally with `useState`. No shared modal/
 
 ## Release-Prozess
 
+**Wichtig:** Den Release-Prozess (Tag + GitHub Release) nur ausführen, wenn der Nutzer explizit darum bittet. Normale Code-Änderungen werden nur committed und gepusht.
+
 Reihenfolge bei einem neuen Release (Beispiel: `v0.5.0`):
 
 ```bash
