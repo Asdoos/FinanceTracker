@@ -26,6 +26,7 @@ No test framework is configured.
 ## Environment
 
 - `DATABASE_PATH` — path to SQLite database file (default: `./data/finance.db`)
+- `DATABASE_URL` — PostgreSQL connection string; when set, SQLite is not used (e.g. `postgres://user:pass@host:5432/db`)
 - `PORT` — server port (default: `3001`)
 - The SQLite database and `data/` directory are created automatically on first server start
 
@@ -33,9 +34,9 @@ No test framework is configured.
 
 **Frontend** (`src/`) is a Vite + React + TypeScript SPA. Tailwind CSS for styling. All server state is fetched via REST API using a custom `useApi` hook in `src/lib/api.ts`.
 
-**Backend** (`server/`) is an Express.js REST API with better-sqlite3 for data persistence.
+**Backend** (`server/`) is an Express.js REST API. Uses a `DbAdapter` interface (`server/db/adapter.ts`) so either SQLite or PostgreSQL can be used — selected at runtime based on whether `DATABASE_URL` is set. Route handlers call `getDb()` from `server/db/index.ts` to get the singleton adapter.
 
-### Data model (`server/db.ts`)
+### Data model (`server/db/sqlite.ts`)
 
 | Table | Key fields |
 |---|---|
@@ -78,6 +79,7 @@ Each domain module follows REST conventions:
 | `/expenses` | `Expenses.tsx` | `GET /api/expenses` |
 | `/income` | `Income.tsx` | `GET /api/income` |
 | `/accounts` | `Accounts.tsx` | `GET /api/accounts` + `GET /api/summary` |
+| `/categories` | `Categories.tsx` | `GET /api/categories` |
 
 All pages manage their own CRUD modals locally with `useState`. No shared modal/dialog component — each page contains its own.
 

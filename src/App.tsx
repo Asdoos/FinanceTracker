@@ -1,15 +1,17 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
 import Accounts from "./pages/Accounts";
+import Categories from "./pages/Categories";
 
 const nav = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/expenses", icon: Receipt, label: "Ausgaben" },
   { to: "/income", icon: TrendingUp, label: "Einnahmen" },
   { to: "/accounts", icon: Landmark, label: "Konten" },
+  { to: "/categories", icon: Tag, label: "Kategorien" },
 ];
 
 export default function App() {
@@ -52,6 +54,7 @@ export default function App() {
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/income" element={<Income />} />
             <Route path="/accounts" element={<Accounts />} />
+            <Route path="/categories" element={<Categories />} />
           </Routes>
         </main>
       </div>

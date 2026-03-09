@@ -27,7 +27,7 @@ export const api = {
 };
 
 /**
- * React hook that replaces Convex's useQuery.
+ * React hook for data fetching.
  * Fetches data from the given URL and refetches when `refetch` is called.
  */
 export function useApi<T>(url: string): {
