@@ -7,9 +7,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Pass Convex URL at build time — Vite bakes it into the bundle
-ARG VITE_CONVEX_URL
-ENV VITE_CONVEX_URL=$VITE_CONVEX_URL
+# Build with a placeholder — replaced at runtime by entrypoint.sh
+ENV VITE_CONVEX_URL=__CONVEX_URL_PLACEHOLDER__
 
 COPY . .
 RUN npm run build
@@ -23,6 +22,10 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # SPA routing: redirect all 404s back to index.html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Runtime injection script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/entrypoint.sh"]

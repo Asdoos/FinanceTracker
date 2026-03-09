@@ -4,7 +4,16 @@
 
 <h1 align="center">Finance Tracker</h1>
 
-<p align="center">A personal finance tracker built with React, TypeScript, and Convex.</p> Track monthly and annual expenses across multiple bank accounts, categorize costs, and get a real-time dashboard overview.
+<p align="center">A personal finance tracker built with React, TypeScript, and Convex.</p>
+
+<p align="center">
+  <a href="https://hub.docker.com/r/asdoos/finance-tracker">
+    <img src="https://img.shields.io/docker/v/asdoos/finance-tracker?label=Docker%20Hub&logo=docker&color=0ea5e9" alt="Docker Hub"/>
+  </a>
+  <a href="https://github.com/Asdoos/FinanceTracker/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/Asdoos/FinanceTracker/actions/workflows/docker-publish.yml/badge.svg" alt="Build Status"/>
+  </a>
+</p>
 
 ## Features
 
@@ -56,17 +65,13 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Docker
 
-The app builds to a static bundle and is served via nginx.
-`VITE_CONVEX_URL` must be provided at **build time** since Vite embeds it into the bundle.
+The image is available on [Docker Hub](https://hub.docker.com/r/asdoos/finance-tracker).
+`CONVEX_URL` is injected at **container start** — no rebuild needed.
 
-### Build & run
+### Pull & run
 
 ```bash
-docker build \
-  --build-arg VITE_CONVEX_URL=https://your-deployment.convex.cloud \
-  -t finance-tracker .
-
-docker run -p 8080:80 finance-tracker
+docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 asdoos/finance-tracker
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
@@ -77,7 +82,8 @@ Copy the example file and fill in your Convex URL:
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
-# Edit docker-compose.yml and set VITE_CONVEX_URL
+# Edit docker-compose.yml — set CONVEX_URL
+docker-compose up
 ```
 
 `docker-compose.example.yml`:
@@ -85,24 +91,24 @@ cp docker-compose.example.yml docker-compose.yml
 ```yaml
 services:
   app:
-    build:
-      context: .
-      args:
-        VITE_CONVEX_URL: https://your-deployment.convex.cloud
+    image: asdoos/finance-tracker:latest
+    environment:
+      CONVEX_URL: https://your-deployment.convex.cloud
     ports:
       - "8080:80"
     restart: unless-stopped
 ```
 
-Then start with:
-
-```bash
-docker-compose up --build
-```
-
 > **Note:** `docker-compose.yml` is gitignored — it contains your deployment URL. Only the `.example.yml` is committed.
 
 > **Note:** The Convex backend runs on Convex's infrastructure — only the frontend is containerized.
+
+### Build locally (optional)
+
+```bash
+docker build -t finance-tracker .
+docker run -e CONVEX_URL=https://your-deployment.convex.cloud -p 8080:80 finance-tracker
+```
 
 ## Project Structure
 

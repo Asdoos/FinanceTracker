@@ -1,9 +1,8 @@
 services:
   app:
-    build:
-      context: .
-      args:
-        VITE_CONVEX_URL: https://your-deployment.convex.cloud
+    image: asdoos/finance-tracker:latest
+    environment:
+      CONVEX_URL: https://your-deployment.convex.cloud
     ports:
       - "8080:80"
     restart: unless-stopped
