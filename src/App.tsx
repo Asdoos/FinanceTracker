@@ -1,10 +1,11 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
 import Accounts from "./pages/Accounts";
 import Categories from "./pages/Categories";
+import { useUpdateCheck } from "./hooks/useUpdateCheck";
 
 const nav = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -13,6 +14,29 @@ const nav = [
   { to: "/accounts", icon: Landmark, label: "Konten" },
   { to: "/categories", icon: Tag, label: "Kategorien" },
 ];
+
+function VersionFooter() {
+  const update = useUpdateCheck(__APP_VERSION__);
+  return (
+    <div className="px-4 py-3 border-t border-gray-800">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-600">v{__APP_VERSION__}</span>
+        {update.status === "update-available" && (
+          <a
+            href={update.releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            title={`v${update.latestVersion} verfügbar`}
+          >
+            <ArrowUpCircle size={13} />
+            Update
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   return (
@@ -45,6 +69,7 @@ export default function App() {
               </NavLink>
             ))}
           </nav>
+          <VersionFooter />
         </aside>
 
         {/* Main content */}
