@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useApi, api } from "../lib/api";
 import { eur, pct } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight } from "lucide-react";
@@ -187,48 +187,66 @@ export default function Expenses() {
         </span>
       </div>
 
-      {/* Grouped by category */}
-      <div className="space-y-3">
-        {grouped.map(({ key, cat, items, total }) => {
-          const isCollapsed = collapsed.has(key);
-          const color = cat?.color ?? "#6b7280";
-          return (
-            <div key={key} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-              {/* Category header */}
-              <button
-                onClick={() => toggleCollapse(key)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-800/40 transition-colors"
-              >
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                <span className="font-semibold text-white text-sm">
-                  {cat?.name ?? "Ohne Kategorie"}
-                </span>
-                <span className="text-gray-500 text-xs">{items.length} Posten</span>
-                <span className="ml-auto text-sm font-medium text-white">{eur(total)}<span className="text-gray-500 text-xs font-normal">/Mo</span></span>
-                {isCollapsed
-                  ? <ChevronRight size={15} className="text-gray-500 flex-shrink-0" />
-                  : <ChevronDown size={15} className="text-gray-500 flex-shrink-0" />
-                }
-              </button>
-
-              {/* Items table */}
-              {!isCollapsed && (
-                <table className="w-full text-sm border-t border-gray-800">
-                  <thead>
-                    <tr className="border-b border-gray-800/60">
-                      <th className="text-left px-4 py-2 text-gray-500 font-medium text-xs">Bezeichnung</th>
-                      <th className="text-left px-4 py-2 text-gray-500 font-medium text-xs">Konto</th>
-                      <th className="text-right px-4 py-2 text-gray-500 font-medium text-xs">Betrag</th>
-                      <th className="text-right px-4 py-2 text-gray-500 font-medium text-xs">Monatlich</th>
-                      <th className="text-right px-4 py-2 text-gray-500 font-medium text-xs">Anteil</th>
-                      <th className="px-4 py-2" />
+      {/* Grouped by category — single table so columns stay aligned */}
+      {grouped.length === 0 ? (
+        <div className="text-center py-16 text-gray-500 text-sm">
+          Keine Ausgaben gefunden.
+        </div>
+      ) : (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <colgroup>
+              <col /> {/* Bezeichnung — flex */}
+              <col className="w-44" /> {/* Konto */}
+              <col className="w-36" /> {/* Betrag */}
+              <col className="w-32" /> {/* Monatlich */}
+              <col className="w-20" /> {/* Anteil */}
+              <col className="w-20" /> {/* Actions */}
+            </colgroup>
+            <thead>
+              <tr className="border-b border-gray-800">
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">Bezeichnung</th>
+                <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">Konto</th>
+                <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Betrag</th>
+                <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Monatlich</th>
+                <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Anteil</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map(({ key, cat, items, total }) => {
+                const isCollapsed = collapsed.has(key);
+                const color = cat?.color ?? "#6b7280";
+                return (
+                  <React.Fragment key={key}>
+                    {/* Category header row */}
+                    <tr className="border-t border-gray-800 bg-gray-800/30">
+                      <td colSpan={6} className="px-0 py-0">
+                        <button
+                          onClick={() => toggleCollapse(key)}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-800/60 transition-colors"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                          <span className="font-semibold text-white text-sm">
+                            {cat?.name ?? "Ohne Kategorie"}
+                          </span>
+                          <span className="text-gray-500 text-xs">{items.length} Posten</span>
+                          <span className="ml-auto text-sm font-medium text-white mr-2">
+                            {eur(total)}<span className="text-gray-500 text-xs font-normal">/Mo</span>
+                          </span>
+                          {isCollapsed
+                            ? <ChevronRight size={14} className="text-gray-500 flex-shrink-0" />
+                            : <ChevronDown size={14} className="text-gray-500 flex-shrink-0" />
+                          }
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((e) => (
+
+                    {/* Item rows */}
+                    {!isCollapsed && items.map((e) => (
                       <tr
                         key={e.id}
-                        className={`border-b border-gray-800/40 last:border-0 hover:bg-gray-800/30 ${!e.isActive ? "opacity-40" : ""}`}
+                        className={`border-t border-gray-800/40 hover:bg-gray-800/30 ${!e.isActive ? "opacity-40" : ""}`}
                       >
                         <td className="px-4 py-3">
                           <div className="font-medium text-white">{e.label}</div>
@@ -278,19 +296,13 @@ export default function Expenses() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          );
-        })}
-
-        {grouped.length === 0 && (
-          <div className="text-center py-16 text-gray-500 text-sm">
-            Keine Ausgaben gefunden.
-          </div>
-        )}
-      </div>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Add/Edit modal */}
       {showAdd && (
