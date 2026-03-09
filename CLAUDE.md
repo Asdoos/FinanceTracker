@@ -94,4 +94,40 @@ All pages manage their own CRUD modals locally with `useState`. No shared modal/
 ### Important gitignore notes
 
 - `data/` and `*.db` are gitignored — SQLite database files
-- `docker-compose.yml` is gitignored — use `docker-compose.example.yml` as template
+- `docker-compose.yml` is gitignored; commit `docker-compose.example.yml` instead
+
+## Release-Prozess
+
+Reihenfolge bei einem neuen Release (Beispiel: `v0.5.0`):
+
+```bash
+# 1. Version in package.json aktualisieren
+#    (manuell oder per Edit-Tool)
+
+# 2. Commit
+git add <geänderte Dateien> package.json
+git commit -m "feat/fix: ..."
+
+# 3. Push
+git push origin master
+
+# 4. Tag erstellen & pushen  →  löst GitHub Actions Docker-Build aus
+git tag v0.5.0
+git push origin v0.5.0
+
+# 5. GitHub Release erstellen
+"/c/Program Files/GitHub CLI/gh.exe" release create v0.5.0 \
+  --title "v0.5.0" \
+  --notes "## Was ist neu
+- ...
+
+## Docker
+\`\`\`
+docker pull anri04/finance-tracker:v0.5.0
+\`\`\`"
+```
+
+**Hinweise:**
+- `gh` ist nur über den vollen Pfad erreichbar: `/c/Program Files/GitHub CLI/gh.exe`
+- Der Tag-Push triggert automatisch den Docker-Build via GitHub Actions (`v*`-Muster)
+- Versionierung: Patch (`x.x.1`) für Bugfixes, Minor (`x.1.0`) für neue Features
