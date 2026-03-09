@@ -1,0 +1,17 @@
+node_modules
+dist
+.env.local
+.env
+
+# Convex auto-generated files (run `npx convex dev` to generate)
+convex/_generated/
+
+# Personal seed data
+convex/seed.ts
+
+# Editor
+.vscode
+.idea
+
+# Claude Code
+.claude/settings.local.json
