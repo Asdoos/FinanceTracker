@@ -34,10 +34,11 @@ type Summary = {
     freibetragMonthly: number;
   }[];
   byCategory: {
-    category: { id: number; name: string; color: string };
+    category: { id: number; name: string; color: string; budget?: number | null };
     monthly: number;
     share: number;
     itemCount: number;
+    pctBudget: number | null;
   }[];
   expenses: {
     id: number;
@@ -290,13 +291,14 @@ export default function Dashboard() {
               <th className="text-right px-4 py-3 text-gray-400 font-medium">Monatlich</th>
               <th className="text-right px-4 py-3 text-gray-400 font-medium">Jährlich</th>
               <th className="text-right px-4 py-3 text-gray-400 font-medium">Anteil</th>
+              <th className="text-right px-4 py-3 text-gray-400 font-medium">Budget</th>
             </tr>
           </thead>
           <tbody>
             {[...summary.byCategory]
               .filter((c) => c.monthly > 0)
               .sort((a, b) => b.monthly - a.monthly)
-              .map(({ category, monthly, share }) => (
+              .map(({ category, monthly, share, pctBudget }) => (
                 <tr
                   key={category.id}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30"
@@ -327,6 +329,26 @@ export default function Dashboard() {
                         {pct(share)}
                       </span>
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {category.budget != null ? (() => {
+                      const p = pctBudget ?? 0;
+                      const barColor = p >= 100 ? "bg-red-500" : p >= 80 ? "bg-yellow-400" : "bg-emerald-500";
+                      const valColor = p >= 100 ? "text-red-400" : p >= 80 ? "text-yellow-400" : "text-emerald-400";
+                      return (
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-xs ${valColor}`}>
+                            {eur(monthly)} / {eur(category.budget!)}
+                          </span>
+                          <div className="w-24 bg-gray-800 rounded-full h-1.5">
+                            <div
+                              className={`h-1.5 rounded-full transition-all ${barColor}`}
+                              style={{ width: `${Math.min(p, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })() : <span className="text-gray-600 text-xs">–</span>}
                   </td>
                 </tr>
               ))}

@@ -63,6 +63,7 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag REAL DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag_year INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE categories ADD COLUMN budget_limit REAL DEFAULT NULL"); } catch { /* already exists */ }
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 
