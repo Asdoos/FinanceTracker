@@ -159,14 +159,19 @@ export default function Accounts() {
                       <div className="text-xs text-gray-500">{account.description}</div>
                     )}
                     {hasFreibetrag && (
-                      <div className={`text-xs mt-0.5 ${fbExpired ? "text-red-400" : "text-gray-400"}`}>
-                        Freibetrag: {eur(account.freibetrag!)}/Jahr
-                        {account.freibetragYear != null
-                          ? fbExpired
-                            ? ` (abgelaufen ${account.freibetragYear})`
-                            : ` (bis ${account.freibetragYear})`
-                          : " (unbefristet)"}
-                      </div>
+                      <>
+                        <div className={`text-xs mt-0.5 ${fbExpired ? "text-red-400" : "text-gray-400"}`}>
+                          Freibetrag: {eur(account.freibetrag!)} / Jahr
+                          {" "}(= {eur(account.freibetrag! / 12)} / Monat)
+                        </div>
+                        <div className={`text-xs ${fbExpired ? "text-red-400" : "text-gray-500"}`}>
+                          {account.freibetragYear != null
+                            ? fbExpired
+                              ? `abgelaufen ${account.freibetragYear}`
+                              : `bis ${account.freibetragYear}`
+                            : "unbefristet"}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
