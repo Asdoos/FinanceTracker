@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useApi, api } from "../lib/api";
 import { eur, pct } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 
 type ExpenseItem = {
   id: number;
@@ -29,6 +29,9 @@ export default function Expenses() {
 
   const [filterAccount, setFilterAccount] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
+  const [sortBy, setSortBy] = useState<"amount" | "label" | "type">("amount");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<ExpenseItem | null>(null);
@@ -50,6 +53,13 @@ export default function Expenses() {
     const filteredItems = expenses.filter((e) => {
       if (filterAccount !== "all" && String(e.accountId) !== filterAccount) return false;
       if (filterCategory !== "all" && String(e.categoryId) !== filterCategory) return false;
+      if (filterActive === "active" && !e.isActive) return false;
+      if (filterActive === "inactive" && e.isActive) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!e.label.toLowerCase().includes(q) && !(e.note ?? "").toLowerCase().includes(q))
+          return false;
+      }
       return true;
     });
     const map = new Map<string, { cat: Category | null; items: ExpenseItem[] }>();
@@ -69,10 +79,14 @@ export default function Expenses() {
       .map(([key, { cat, items }]) => ({
         key,
         cat,
-        items: [...items].sort((a, b) => b.monthlyAmount - a.monthlyAmount),
+        items: [...items].sort((a, b) => {
+          if (sortBy === "label") return a.label.localeCompare(b.label, "de");
+          if (sortBy === "type") return a.type === b.type ? 0 : a.type === "monthly" ? -1 : 1;
+          return b.monthlyAmount - a.monthlyAmount;
+        }),
         total: items.reduce((s, e) => s + e.monthlyAmount, 0),
       }));
-  }, [expenses, filterAccount, filterCategory]);
+  }, [expenses, filterAccount, filterCategory, search, filterActive, sortBy]);
 
   const totalFiltered = grouped.reduce((s, g) => s + g.total, 0);
 
@@ -162,7 +176,17 @@ export default function Expenses() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Suche..."
+            className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-44"
+          />
+        </div>
         <select
           value={filterAccount}
           onChange={(e) => setFilterAccount(e.target.value)}
@@ -186,6 +210,24 @@ export default function Expenses() {
               {c.name}
             </option>
           ))}
+        </select>
+        <select
+          value={filterActive}
+          onChange={(e) => setFilterActive(e.target.value as "all" | "active" | "inactive")}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="all">Alle</option>
+          <option value="active">Nur aktive</option>
+          <option value="inactive">Nur inaktive</option>
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "amount" | "label" | "type")}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="amount">Betrag ↓</option>
+          <option value="label">Name A–Z</option>
+          <option value="type">Typ</option>
         </select>
         <span className="ml-auto text-sm text-gray-400 self-center">
           Gesamt: <span className="text-white font-medium">{eur(totalFiltered)}</span>/Monat
