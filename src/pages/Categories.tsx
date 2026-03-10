@@ -7,6 +7,7 @@ type Category = {
   name: string;
   color: string;
   icon?: string;
+  budget?: number | null;
 };
 
 const PRESET_COLORS = [
@@ -19,7 +20,7 @@ export default function Categories() {
 
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", color: "#3b82f6", icon: "" });
+  const [form, setForm] = useState({ name: "", color: "#3b82f6", icon: "", budget: "" });
 
   if (!categories) {
     return (
@@ -30,13 +31,14 @@ export default function Categories() {
   }
 
   function openAdd() {
-    setForm({ name: "", color: "#3b82f6", icon: "" });
+    setForm({ name: "", color: "#3b82f6", icon: "", budget: "" });
     setEditId(null);
     setShowModal(true);
   }
 
   function openEdit(cat: Category) {
-    setForm({ name: cat.name, color: cat.color, icon: cat.icon ?? "" });
+    setForm({ name: cat.name, color: cat.color, icon: cat.icon ?? "",
+              budget: cat.budget != null ? String(cat.budget) : "" });
     setEditId(cat.id);
     setShowModal(true);
   }
@@ -47,6 +49,7 @@ export default function Categories() {
       name: form.name.trim(),
       color: form.color,
       icon: form.icon.trim() || undefined,
+      budget: form.budget ? parseFloat(form.budget) : null,
     };
     if (editId) {
       await api.patch(`/categories/${editId}`, payload);
@@ -106,6 +109,11 @@ export default function Categories() {
                   <div className="font-semibold text-white">{cat.name}</div>
                   {cat.icon && (
                     <div className="text-xs text-gray-500">{cat.icon}</div>
+                  )}
+                  {cat.budget != null && cat.budget > 0 && (
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Budget: {cat.budget.toLocaleString("de-DE", { style: "currency", currency: "EUR" })} / Monat
+                    </div>
                   )}
                 </div>
               </div>
@@ -183,6 +191,21 @@ export default function Categories() {
                   />
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-gray-400 font-medium">
+                Monatsbudget € (optional)
+              </label>
+              <input
+                type="number"
+                value={form.budget}
+                onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))}
+                className="input"
+                placeholder="z.B. 200"
+                step="0.01"
+                min="0"
+              />
             </div>
 
             <div className="flex gap-3 pt-2">

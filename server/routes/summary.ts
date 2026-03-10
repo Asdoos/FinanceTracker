@@ -81,10 +81,14 @@ router.get("/", async (_req, res) => {
     const share = totalMonthlyExpenses > 0 ? (monthly / totalMonthlyExpenses) * 100 : 0;
 
     return {
-      category: { id: cat.id, name: cat.name, color: cat.color },
+      category: { id: cat.id, name: cat.name, color: cat.color,
+                  budget: cat.budget_limit ?? null },
       monthly,
       share,
       itemCount: catExp.length,
+      pctBudget: cat.budget_limit > 0
+        ? (monthly / cat.budget_limit) * 100
+        : null,
     };
   });
 

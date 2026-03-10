@@ -13,20 +13,21 @@ router.get("/", async (_req, res) => {
       name: r.name,
       color: r.color,
       icon: r.icon || undefined,
+      budget: r.budget_limit ?? null,
     }))
   );
 });
 
 // POST /api/categories
 router.post("/", async (req, res) => {
-  const { name, color, icon } = req.body;
+  const { name, color, icon, budget } = req.body;
   if (!name || !color) {
     return res.status(400).json({ error: "name and color are required" });
   }
   const db = await getDb();
   const result = await db.run(
-    "INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)",
-    [name, color, icon || null]
+    "INSERT INTO categories (name, color, icon, budget_limit) VALUES (?, ?, ?, ?)",
+    [name, color, icon || null, budget ?? null]
   );
   res.status(201).json({ id: result.lastId });
 });
@@ -34,7 +35,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/categories/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, icon } = req.body;
+  const { name, color, icon, budget } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM categories WHERE id = ?", [id]);
@@ -46,6 +47,7 @@ router.patch("/:id", async (req, res) => {
   if (name !== undefined) { fields.push("name = ?"); values.push(name); }
   if (color !== undefined) { fields.push("color = ?"); values.push(color); }
   if (icon !== undefined) { fields.push("icon = ?"); values.push(icon || null); }
+  if (budget !== undefined) { fields.push("budget_limit = ?"); values.push(budget ?? null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

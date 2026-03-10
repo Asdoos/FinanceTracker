@@ -61,6 +61,8 @@ export async function createPostgresAdapter(
   const client = await pool.connect();
   try {
     await client.query(SCHEMA);
+    // Migrations for existing databases
+    try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {
     client.release();
