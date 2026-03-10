@@ -169,47 +169,77 @@ export default function Dashboard() {
           </h3>
           {summary.byAccount
             .filter((a) => a.monthlyExpenses > 0 || a.monthlyIncome > 0)
-            .map(({ account, monthlyExpenses, monthlyIncome, rest, itemCount }) => (
-              <div
-                key={account.id}
-                className="bg-gray-900 border border-gray-800 rounded-xl p-4"
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: account.color }}
-                  />
-                  <span className="font-medium text-white">{account.name}</span>
-                  <span className="ml-auto text-xs text-gray-500">
-                    {itemCount} Posten
-                  </span>
+            .map(({ account, monthlyExpenses, monthlyIncome, rest, itemCount, freibetragMonthly }) => {
+              const hasFb = freibetragMonthly > 0 && account.freibetrag != null;
+              const ausgeschoepft = monthlyIncome * 12;
+              const fbJahr = account.freibetrag ?? 0;
+              const pctRaw = hasFb && fbJahr > 0 ? (ausgeschoepft / fbJahr) * 100 : 0;
+              const pctClamped = Math.min(pctRaw, 100);
+              const barColor = pctRaw >= 100 ? "bg-red-500" : pctRaw >= 80 ? "bg-yellow-400" : "bg-emerald-500";
+              const valColor = pctRaw >= 100 ? "text-red-400" : pctRaw >= 80 ? "text-yellow-400" : "text-emerald-400";
+
+              return (
+                <div
+                  key={account.id}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-4"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: account.color }}
+                    />
+                    <span className="font-medium text-white">{account.name}</span>
+                    <span className="ml-auto text-xs text-gray-500">
+                      {itemCount} Posten
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <p className="text-gray-500 text-xs">Einnahmen</p>
+                      <p className="text-green-400 font-medium">
+                        {eur(monthlyIncome)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 text-xs">Ausgaben</p>
+                      <p className="text-red-400 font-medium">
+                        {eur(monthlyExpenses)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500 text-xs">Rest</p>
+                      <p
+                        className={`font-medium ${
+                          rest >= 0 ? "text-blue-400" : "text-orange-400"
+                        }`}
+                      >
+                        {eur(rest)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {hasFb && (
+                    <div className="mt-3 pt-3 border-t border-gray-800 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Freibetrag-Ausschöpfung</span>
+                        <span className={valColor}>
+                          {eur(ausgeschoepft)} / {eur(fbJahr)} ({pct(pctRaw)})
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-800 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${barColor}`}
+                          style={{ width: `${pctClamped}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-600">
+                        * Nur Kapitalerträge (Zinsen, Dividenden)
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div>
-                    <p className="text-gray-500 text-xs">Einnahmen</p>
-                    <p className="text-green-400 font-medium">
-                      {eur(monthlyIncome)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 text-xs">Ausgaben</p>
-                    <p className="text-red-400 font-medium">
-                      {eur(monthlyExpenses)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500 text-xs">Rest</p>
-                    <p
-                      className={`font-medium ${
-                        rest >= 0 ? "text-blue-400" : "text-orange-400"
-                      }`}
-                    >
-                      {eur(rest)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
 
         {/* Donut chart */}
