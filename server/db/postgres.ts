@@ -63,6 +63,8 @@ export async function createPostgresAdapter(
     await client.query(SCHEMA);
     // Migrations for existing databases
     try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {
     client.release();

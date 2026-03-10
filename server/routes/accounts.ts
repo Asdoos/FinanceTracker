@@ -16,20 +16,22 @@ router.get("/", async (_req, res) => {
       isDefault: !!r.is_default,
       freibetrag: r.freibetrag ?? null,
       freibetragYear: r.freibetrag_year ?? null,
+      interestRate: r.interest_rate ?? null,
+      interestRateUntil: r.interest_rate_until ?? null,
     }))
   );
 });
 
 // POST /api/accounts
 router.post("/", async (req, res) => {
-  const { name, color, description, isDefault, freibetrag, freibetragYear } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil } = req.body;
   if (!name || !color) {
     return res.status(400).json({ error: "name and color are required" });
   }
   const db = await getDb();
   const result = await db.run(
-    "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year) VALUES (?, ?, ?, ?, ?, ?)",
-    [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null]
+    "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null]
   );
   res.status(201).json({ id: result.lastId });
 });
@@ -37,7 +39,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/accounts/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, description, isDefault, freibetrag, freibetragYear } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);
@@ -52,6 +54,8 @@ router.patch("/:id", async (req, res) => {
   if (isDefault !== undefined) { fields.push("is_default = ?"); values.push(isDefault ? 1 : 0); }
   if (freibetrag !== undefined) { fields.push("freibetrag = ?"); values.push(freibetrag ?? null); }
   if (freibetragYear !== undefined) { fields.push("freibetrag_year = ?"); values.push(freibetragYear ?? null); }
+  if (interestRate !== undefined) { fields.push("interest_rate = ?"); values.push(interestRate ?? null); }
+  if (interestRateUntil !== undefined) { fields.push("interest_rate_until = ?"); values.push(interestRateUntil ?? null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

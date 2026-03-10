@@ -11,6 +11,8 @@ type Account = {
   isDefault: boolean;
   freibetrag?: number | null;
   freibetragYear?: number | null;
+  interestRate?: number | null;
+  interestRateUntil?: string | null;
 };
 
 type AccountSummary = {
@@ -46,6 +48,8 @@ export default function Accounts() {
     description: "",
     freibetrag: "",
     freibetragYear: "",
+    interestRate: "",
+    interestRateUntil: "",
   });
 
   if (!accounts || !summary) {
@@ -63,7 +67,7 @@ export default function Accounts() {
   const currentYear = new Date().getFullYear();
 
   function openAdd() {
-    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "" });
+    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "", interestRate: "", interestRateUntil: "" });
     setEditId(null);
     setShowAdd(true);
   }
@@ -75,6 +79,8 @@ export default function Accounts() {
       description: a.description ?? "",
       freibetrag: a.freibetrag != null ? String(a.freibetrag) : "",
       freibetragYear: a.freibetragYear != null ? String(a.freibetragYear) : "",
+      interestRate: a.interestRate != null ? String(a.interestRate) : "",
+      interestRateUntil: a.interestRateUntil ?? "",
     });
     setEditId(a.id);
     setShowAdd(true);
@@ -88,6 +94,8 @@ export default function Accounts() {
       description: form.description || undefined,
       freibetrag: form.freibetrag ? parseFloat(form.freibetrag) : null,
       freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
+      interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
+      interestRateUntil: form.interestRateUntil || null,
     };
     if (editId) {
       await api.patch(`/accounts/${editId}`, payload);
@@ -173,6 +181,28 @@ export default function Accounts() {
                         </div>
                       </>
                     )}
+                    {account.interestRate != null && account.interestRate > 0 && (() => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      const until = account.interestRateUntil;
+                      const expired  = !!until && until < today;
+                      const expiring = !expired && !!until &&
+                        new Date(until) <= new Date(Date.now() + 60 * 86_400_000);
+                      const cls = expired ? "text-red-400" : expiring ? "text-yellow-400" : "text-emerald-400";
+                      return (
+                        <>
+                          <div className={`text-xs mt-0.5 ${cls}`}>
+                            Zinsen: {account.interestRate.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % p.a.
+                          </div>
+                          <div className={`text-xs ${cls}`}>
+                            {until
+                              ? expired
+                                ? `abgelaufen ${new Date(until).toLocaleDateString("de-DE")}`
+                                : `bis ${new Date(until).toLocaleDateString("de-DE")}`
+                              : "unbefristet"}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="flex gap-1">
@@ -291,6 +321,31 @@ export default function Accounts() {
                   placeholder={String(currentYear)}
                   min="2000"
                   max="2100"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-gray-400 font-medium">Zinssatz % p.a. (optional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={form.interestRate}
+                  onChange={(e) => setForm((f) => ({ ...f, interestRate: e.target.value }))}
+                  className="input"
+                  placeholder="z.B. 3.50"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-400 font-medium">Gültig bis (leer = unbefristet)</label>
+                <input
+                  type="date"
+                  value={form.interestRateUntil}
+                  onChange={(e) => setForm((f) => ({ ...f, interestRateUntil: e.target.value }))}
+                  className="input"
                 />
               </div>
             </div>
