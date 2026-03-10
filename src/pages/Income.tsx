@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, Search } from "lucide-react";
 
 type IncomeItem = {
   id: number;
@@ -21,6 +21,10 @@ export default function Income() {
   const { data: incomes, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income");
   const { data: accounts } = useApi<Account[]>("/accounts");
 
+  const [search, setSearch] = useState("");
+  const [filterAccount, setFilterAccount] = useState("all");
+  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
+  const [sortBy, setSortBy] = useState<"amount" | "label" | "type">("amount");
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<IncomeItem | null>(null);
 
@@ -33,6 +37,27 @@ export default function Income() {
     note: "",
   });
 
+  const filtered = useMemo(() => {
+    if (!incomes) return [];
+    return [...incomes]
+      .filter((i) => {
+        if (filterAccount !== "all" && String(i.accountId) !== filterAccount) return false;
+        if (filterActive === "active" && !i.isActive) return false;
+        if (filterActive === "inactive" && i.isActive) return false;
+        if (search) {
+          const q = search.toLowerCase();
+          if (!i.label.toLowerCase().includes(q) && !(i.note ?? "").toLowerCase().includes(q))
+            return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "label") return a.label.localeCompare(b.label, "de");
+        if (sortBy === "type") return a.type === b.type ? 0 : a.type === "monthly" ? -1 : 1;
+        return b.monthlyAmount - a.monthlyAmount;
+      });
+  }, [incomes, search, filterAccount, filterActive, sortBy]);
+
   if (!incomes || !accounts) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -41,7 +66,7 @@ export default function Income() {
     );
   }
 
-  const totalMonthly = incomes
+  const totalMonthly = filtered
     .filter((i) => i.isActive)
     .reduce((s, i) => s + i.monthlyAmount, 0);
 
@@ -117,6 +142,48 @@ export default function Income() {
         </button>
       </div>
 
+      {/* Filters */}
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Suche..."
+            className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-44"
+          />
+        </div>
+        <select
+          value={filterAccount}
+          onChange={(e) => setFilterAccount(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="all">Alle Konten</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={String(a.id)}>{a.name}</option>
+          ))}
+        </select>
+        <select
+          value={filterActive}
+          onChange={(e) => setFilterActive(e.target.value as "all" | "active" | "inactive")}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="all">Alle</option>
+          <option value="active">Nur aktive</option>
+          <option value="inactive">Nur inaktive</option>
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "amount" | "label" | "type")}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="amount">Betrag ↓</option>
+          <option value="label">Name A–Z</option>
+          <option value="type">Typ</option>
+        </select>
+      </div>
+
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -129,9 +196,7 @@ export default function Income() {
             </tr>
           </thead>
           <tbody>
-            {[...incomes]
-              .sort((a, b) => b.monthlyAmount - a.monthlyAmount)
-              .map((item) => (
+            {filtered.map((item) => (
                 <tr
                   key={item.id}
                   className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${!item.isActive ? "opacity-50" : ""}`}
