@@ -122,7 +122,7 @@ export default function Income() {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-white">Einnahmen</h2>
@@ -151,7 +151,7 @@ export default function Income() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Suche..."
-            className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-44"
+            className="bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-44"
           />
         </div>
         <select
@@ -184,7 +184,64 @@ export default function Income() {
         </select>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      {/* Mobile: Card list */}
+      <div className="md:hidden space-y-2">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-500 text-sm">Keine Einnahmen gefunden.</div>
+        ) : filtered.map((item) => (
+          <div
+            key={item.id}
+            className={`bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 ${!item.isActive ? "opacity-50" : ""}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-white text-sm truncate">{item.label}</p>
+                {item.note && <p className="text-xs text-gray-500 truncate">{item.note}</p>}
+                <div className="flex items-center gap-2 mt-1">
+                  {item.account && (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                      style={{
+                        backgroundColor: item.account.color + "22",
+                        color: item.account.color,
+                        border: `1px solid ${item.account.color}44`,
+                      }}
+                    >
+                      {item.account.name}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-500">
+                    {item.type === "annual" ? "Jährlich" : "Monatlich"}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-col items-end flex-shrink-0 gap-1">
+                <span className="text-green-400 font-medium text-sm">{eur(item.monthlyAmount)}/Mo</span>
+                <span className="text-gray-500 text-xs">
+                  {eur(item.amount)}{item.type === "annual" ? "/Jahr" : "/Mo"}
+                </span>
+                <div className="flex gap-1 mt-1">
+                  <button
+                    onClick={() => openEdit(item)}
+                    className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: Table */}
+      <div className="hidden md:block bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800">
@@ -254,7 +311,7 @@ export default function Income() {
 
       {showAdd && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">
                 {editItem ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}

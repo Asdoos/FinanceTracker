@@ -79,11 +79,11 @@ export default function Dashboard() {
     }));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <h2 className="text-xl font-semibold text-white">Dashboard</h2>
 
       {/* Top KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         <KpiCard
           label="Monatliche Einnahmen"
           value={eur(summary.totalMonthlyIncome)}
@@ -139,7 +139,7 @@ export default function Dashboard() {
             </div>
 
             {/* Per-account breakdown */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
               {accountsWithFb.map(({ account, freibetragMonthly }) => {
                 const fbYear = account.freibetragYear;
                 const expired = fbYear != null && fbYear < currentYear;
@@ -162,7 +162,7 @@ export default function Dashboard() {
       })()}
 
       {/* Per-account cards + Donut chart */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {/* Account breakdown */}
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
@@ -284,7 +284,8 @@ export default function Dashboard() {
 
       {/* Category table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[500px]">
           <thead>
             <tr className="border-b border-gray-800">
               <th className="text-left px-4 py-3 text-gray-400 font-medium">Kategorie</th>
@@ -354,6 +355,7 @@ export default function Dashboard() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

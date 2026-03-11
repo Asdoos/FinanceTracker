@@ -71,7 +71,7 @@ export default function Categories() {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-white">Kategorien</h2>
         <button
@@ -88,7 +88,7 @@ export default function Categories() {
           <p className="text-xs mt-1">Erstelle eine Kategorie, um Ausgaben zu gruppieren.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {categories.map((cat) => (
             <div
               key={cat.id}
@@ -139,7 +139,7 @@ export default function Categories() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm space-y-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-white">
                 {editId ? "Kategorie bearbeiten" : "Kategorie hinzufügen"}

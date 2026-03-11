@@ -15,6 +15,36 @@ const nav = [
   { to: "/categories", icon: Tag, label: "Kategorien" },
 ];
 
+function MobileBottomNav() {
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-gray-900 border-t border-gray-800 h-16">
+      <div className="flex h-full">
+        {nav.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === "/"}
+            className={({ isActive }) =>
+              `flex flex-1 flex-col items-center justify-center gap-0.5 text-xs transition-colors ${
+                isActive ? "text-blue-400" : "text-gray-500 hover:text-gray-300"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <div className={`p-1 rounded-lg ${isActive ? "bg-blue-600/20" : ""}`}>
+                  <Icon size={18} />
+                </div>
+                <span className="leading-none">{label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function VersionFooter() {
   const update = useUpdateCheck(__APP_VERSION__);
   return (
@@ -42,8 +72,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+        {/* Sidebar — nur auf md+ sichtbar */}
+        <aside className="hidden md:flex w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex-col">
           <div className="px-4 py-4 border-b border-gray-800 flex items-center gap-3">
             <img src="/logo.svg" alt="Logo" className="w-9 h-9 rounded-lg flex-shrink-0" />
             <div>
@@ -76,7 +106,7 @@ export default function App() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/expenses" element={<Expenses />} />
@@ -85,6 +115,9 @@ export default function App() {
             <Route path="/categories" element={<Categories />} />
           </Routes>
         </main>
+
+        {/* Mobile Bottom Navigation */}
+        <MobileBottomNav />
       </div>
     </BrowserRouter>
   );
