@@ -1,8 +1,10 @@
+import http from "http";
 import express from "express";
 import cors from "cors";
 import path from "path";
 import { createRequire } from "module";
 import { getDb } from "./db";
+import { setupMcp } from "./mcp";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -25,16 +27,27 @@ app.use("/api/expenses", expensesRouter);
 app.use("/api/income", incomeRouter);
 app.use("/api/summary", summaryRouter);
 
-// ── Production: serve built frontend ────────────────────────────────────────
-const distPath = path.join(process.cwd(), "dist");
-app.use(express.static(distPath));
-app.get("/{*splat}", (_req, res) => {
-  res.sendFile(path.join(distPath, "index.html"));
-});
-
 // ── Start server (after DB is initialized) ──────────────────────────────────
-getDb().then(() => {
-  app.listen(PORT, () => {
+getDb().then(async () => {
+  const mcpHandler = await setupMcp();
+
+  // ── Production: serve built frontend ──────────────────────────────────
+  const distPath = path.join(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  app.get("/{*splat}", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+
+  // Route /mcp directly to the MCP handler (bypasses Express body parsing)
+  const httpServer = http.createServer((req, res) => {
+    if (req.url?.startsWith("/mcp")) {
+      mcpHandler(req, res);
+    } else {
+      (app as any)(req, res);
+    }
+  });
+
+  httpServer.listen(PORT, () => {
     console.log(`Finance Tracker v${version} — http://localhost:${PORT}`);
   });
 }).catch((err) => {

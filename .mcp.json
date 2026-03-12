@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "finance-tracker": {
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
