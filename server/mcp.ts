@@ -379,6 +379,130 @@ function buildServer(): McpServer {
     }
   );
 
+  // ── list_transactions ──────────────────────────────────────────────────
+  server.tool(
+    "list_transactions",
+    "List one-time transactions with category and account info",
+    {
+      type: z.enum(["income", "expense"]).optional().describe("Filter by type"),
+      month: z.string().optional().describe("Filter by month in YYYY-MM format"),
+    },
+    async ({ type, month }) => {
+      try {
+        const db = await getDb();
+        let sql = `
+          SELECT t.*, c.name AS cat_name, c.color AS cat_color, a.name AS acc_name, a.color AS acc_color
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts   a ON a.id = t.account_id
+          WHERE 1=1
+        `;
+        const params: any[] = [];
+        if (type) { sql += " AND t.type = ?"; params.push(type); }
+        if (month) { sql += " AND t.date LIKE ?"; params.push(`${month}-%`); }
+        sql += " ORDER BY t.date DESC, t.id DESC";
+        const { rows } = await db.query(sql, params);
+        const result = rows.map((r: any) => ({
+          id: r.id, date: r.date, label: r.label, amount: r.amount, type: r.type,
+          categoryId: r.category_id, accountId: r.account_id, note: r.note || null,
+          category: r.cat_name ? { id: r.category_id, name: r.cat_name, color: r.cat_color } : null,
+          account: r.acc_name ? { id: r.account_id, name: r.acc_name, color: r.acc_color } : null,
+        }));
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── add_transaction ────────────────────────────────────────────────────
+  server.tool(
+    "add_transaction",
+    "Add a one-time transaction (income or expense)",
+    {
+      date: z.string().describe("Date in YYYY-MM-DD format"),
+      label: z.string().describe("Transaction label/description"),
+      amount: z.number().describe("Amount (positive number)"),
+      type: z.enum(["income", "expense"]).describe("Transaction type"),
+      accountId: z.number().describe("Account ID"),
+      categoryId: z.number().optional().describe("Category ID (optional, mainly for expenses)"),
+      note: z.string().optional().describe("Optional note"),
+    },
+    async ({ date, label, amount, type, accountId, categoryId, note }) => {
+      try {
+        const db = await getDb();
+        const result = await db.run(
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [date, label, amount, type, categoryId || null, accountId, note || null]
+        );
+        return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── update_transaction ─────────────────────────────────────────────────
+  server.tool(
+    "update_transaction",
+    "Update an existing transaction (only pass fields to change)",
+    {
+      id: z.number().describe("Transaction ID"),
+      date: z.string().optional(),
+      label: z.string().optional(),
+      amount: z.number().optional(),
+      type: z.enum(["income", "expense"]).optional(),
+      accountId: z.number().optional(),
+      categoryId: z.number().optional().describe("Pass 0 to clear category"),
+      note: z.string().optional(),
+    },
+    async ({ id, date, label, amount, type, accountId, categoryId, note }) => {
+      try {
+        const db = await getDb();
+        const { rows } = await db.query("SELECT id FROM transactions WHERE id = ?", [id]);
+        if (rows.length === 0) return {
+          content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
+        };
+        const fields: string[] = [];
+        const values: any[] = [];
+        if (date !== undefined) { fields.push("date = ?"); values.push(date); }
+        if (label !== undefined) { fields.push("label = ?"); values.push(label); }
+        if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
+        if (type !== undefined) { fields.push("type = ?"); values.push(type); }
+        if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
+        if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId || null); }
+        if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
+        if (fields.length === 0) return {
+          content: [{ type: "text" as const, text: "No fields to update" }], isError: true
+        };
+        await db.run(`UPDATE transactions SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── delete_transaction ─────────────────────────────────────────────────
+  server.tool(
+    "delete_transaction",
+    "Delete a transaction by ID",
+    { id: z.number().describe("Transaction ID to delete") },
+    async ({ id }) => {
+      try {
+        const db = await getDb();
+        const result = await db.run("DELETE FROM transactions WHERE id = ?", [id]);
+        if (result.changes === 0) return {
+          content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
+        };
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
   return server;
 }
 

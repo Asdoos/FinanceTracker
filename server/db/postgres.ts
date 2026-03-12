@@ -41,6 +41,18 @@ const SCHEMA = `
     note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id SERIAL PRIMARY KEY,
+    date TEXT NOT NULL,
+    label TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+    category_id INTEGER REFERENCES categories(id),
+    account_id INTEGER NOT NULL REFERENCES accounts(id),
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 `;
 
 /**

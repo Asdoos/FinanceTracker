@@ -15,6 +15,17 @@ router.get("/", async (_req, res) => {
   const { rows: accounts } = await db.query("SELECT * FROM accounts");
   const { rows: categories } = await db.query("SELECT * FROM categories");
 
+  // ── Current-month transaction sums ──
+  const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const { rows: txRows } = await db.query(
+    "SELECT type, SUM(amount) AS total FROM transactions WHERE date LIKE ? GROUP BY type",
+    [`${currentMonth}-%`]
+  );
+  const transactionExpensesThisMonth =
+    txRows.find((r: any) => r.type === "expense")?.total ?? 0;
+  const transactionIncomeThisMonth =
+    txRows.find((r: any) => r.type === "income")?.total ?? 0;
+
   const accMap = Object.fromEntries(accounts.map((a: any) => [a.id, a]));
   const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
 
@@ -121,6 +132,8 @@ router.get("/", async (_req, res) => {
     totalAnnualIncome: totalMonthlyIncome * 12,
     rest,
     totalFreibetrag,
+    transactionExpensesThisMonth,
+    transactionIncomeThisMonth,
     byAccount,
     byCategory,
     expenses: enrichedExpenses,

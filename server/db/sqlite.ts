@@ -46,6 +46,18 @@ const SCHEMA = `
     note TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    label TEXT NOT NULL,
+    amount REAL NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+    category_id INTEGER REFERENCES categories(id),
+    account_id INTEGER NOT NULL REFERENCES accounts(id),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `;
 
 export function createSqliteAdapter(dbPath?: string): DbAdapter {

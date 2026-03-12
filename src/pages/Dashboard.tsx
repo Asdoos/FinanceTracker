@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useApi } from "../lib/api";
 import { eur, pct } from "../lib/format";
 import {
@@ -8,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle } from "lucide-react";
+import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock } from "lucide-react";
 
 const FREIBETRAG_LIMIT = 1000;
 
@@ -19,6 +20,8 @@ type Summary = {
   totalAnnualIncome: number;
   rest: number;
   totalFreibetrag: number;
+  transactionExpensesThisMonth: number;
+  transactionIncomeThisMonth: number;
   byAccount: {
     account: {
       id: number;
@@ -109,6 +112,42 @@ export default function Dashboard() {
           bg={summary.rest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
         />
       </div>
+
+      {/* One-time transactions this month */}
+      {(summary.transactionExpensesThisMonth > 0 || summary.transactionIncomeThisMonth > 0) && (() => {
+        const currentMonth = new Date().toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+        return (
+          <Link
+            to="/transactions"
+            className="block bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Clock size={15} className="text-blue-400" />
+              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                Einmalige Transaktionen ({currentMonth})
+              </h3>
+            </div>
+            <div className="flex gap-6">
+              {summary.transactionExpensesThisMonth > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Ausgaben</p>
+                  <p className="text-base font-semibold text-red-400">
+                    -{eur(summary.transactionExpensesThisMonth)}
+                  </p>
+                </div>
+              )}
+              {summary.transactionIncomeThisMonth > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Einnahmen</p>
+                  <p className="text-base font-semibold text-green-400">
+                    +{eur(summary.transactionIncomeThisMonth)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </Link>
+        );
+      })()}
 
       {/* Freibetrag overview — only when at least one account has one */}
       {summary.totalFreibetrag > 0 && (() => {

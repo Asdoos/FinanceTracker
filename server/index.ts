@@ -13,6 +13,7 @@ import categoriesRouter from "./routes/categories";
 import expensesRouter from "./routes/expenses";
 import incomeRouter from "./routes/income";
 import summaryRouter from "./routes/summary";
+import transactionsRouter from "./routes/transactions";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -26,6 +27,7 @@ app.use("/api/categories", categoriesRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/income", incomeRouter);
 app.use("/api/summary", summaryRouter);
+app.use("/api/transactions", transactionsRouter);
 
 // ── Start server (after DB is initialized) ──────────────────────────────────
 getDb().then(async () => {
