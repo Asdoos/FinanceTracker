@@ -383,29 +383,12 @@ export async function setupMcp(): Promise<(req: IncomingMessage, res: ServerResp
   console.log("MCP server ready at /mcp");
 
   return (req, res) => {
-    const handle = (parsedBody?: unknown) => {
-      transport.handleRequest(req as any, res as any, parsedBody).catch((err: any) => {
-        console.error("MCP transport error:", err);
-        if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: err.message }));
-        }
-      });
-    };
-
-    if (req.method === "POST") {
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", () => {
-        let parsedBody: unknown;
-        try {
-          const raw = Buffer.concat(chunks).toString("utf-8");
-          if (raw) parsedBody = JSON.parse(raw);
-        } catch {}
-        handle(parsedBody);
-      });
-    } else {
-      handle();
-    }
+    transport.handleRequest(req as any, res as any).catch((err: any) => {
+      console.error("MCP transport error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
   };
 }
