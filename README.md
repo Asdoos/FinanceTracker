@@ -21,6 +21,7 @@
 - **Expenses** — Full CRUD, filter by account or category, monthly/annual cost types, share % per item
 - **Income** — Manage income sources per account
 - **Accounts** — Multiple bank accounts with color coding, individual balance overview
+- **MCP Server** — Claude Code integration: query and manage your finances via natural language
 
 ## Tech Stack
 
@@ -118,6 +119,7 @@ server/               # Backend (Express REST API)
     postgres.ts       # PostgreSQL implementation (pg)
     index.ts          # Factory — picks adapter based on DATABASE_URL
   index.ts            # Express server entry point
+  mcp.ts              # MCP server (SSEServerTransport, 11 tools)
   routes/
     accounts.ts       # Account CRUD
     categories.ts     # Category CRUD
@@ -135,6 +137,22 @@ src/                  # Frontend (React SPA)
     api.ts            # REST client & useApi hook
     format.ts         # EUR and % formatters
 ```
+
+## Claude Code (MCP)
+
+The server exposes an [MCP](https://modelcontextprotocol.io) endpoint so Claude Code can read and write your finance data directly.
+
+**Start the backend, then connect Claude Code:**
+
+```bash
+npm run server   # backend must be running on port 3001
+```
+
+The `.mcp.json` in the project root is picked up automatically when you open the project in Claude Code. Confirm the one-time security prompt — the `finance-tracker` server will then appear as connected under `/mcp`.
+
+**Available tools:** `get_summary`, `list_expenses`, `list_income`, `list_accounts`, `list_categories`, `add_expense`, `add_income`, `update_expense`, `update_income`, `delete_expense`, `delete_income`
+
+> See the [MCP Integration wiki page](https://github.com/Asdoos/FinanceTracker/wiki/MCP-Integration) for the full tool reference, parameter docs, and example prompts.
 
 ## API Endpoints
 
