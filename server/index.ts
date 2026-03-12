@@ -4,7 +4,7 @@ import cors from "cors";
 import path from "path";
 import { createRequire } from "module";
 import { getDb } from "./db";
-import { setupMcp } from "./mcp";
+import { mcpSseHandler, mcpMessageHandler } from "./mcp";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -29,8 +29,6 @@ app.use("/api/summary", summaryRouter);
 
 // ── Start server (after DB is initialized) ──────────────────────────────────
 getDb().then(async () => {
-  const mcpHandler = await setupMcp();
-
   // ── Production: serve built frontend ──────────────────────────────────
   const distPath = path.join(process.cwd(), "dist");
   app.use(express.static(distPath));
@@ -38,10 +36,24 @@ getDb().then(async () => {
     res.sendFile(path.join(distPath, "index.html"));
   });
 
-  // Route /mcp directly to the MCP handler (bypasses Express body parsing)
+  // Route /mcp/sse and /mcp/messages directly, bypassing Express body parsing
   const httpServer = http.createServer((req, res) => {
-    if (req.url?.startsWith("/mcp")) {
-      mcpHandler(req, res);
+    if (req.url?.startsWith("/mcp/sse") && req.method === "GET") {
+      mcpSseHandler(req, res).catch((err) => {
+        console.error("MCP SSE handler error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end();
+        }
+      });
+    } else if (req.url?.startsWith("/mcp/messages") && req.method === "POST") {
+      mcpMessageHandler(req, res).catch((err) => {
+        console.error("MCP message handler error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end();
+        }
+      });
     } else {
       (app as any)(req, res);
     }

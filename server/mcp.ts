@@ -1,13 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 import type { IncomingMessage, ServerResponse } from "http";
 import { getDb } from "./db";
 
+const sessions = new Map<string, SSEServerTransport>();
+
 const toMonthly = (amount: number, type: string) =>
   type === "annual" ? amount / 12 : amount;
 
-export async function setupMcp(): Promise<(req: IncomingMessage, res: ServerResponse) => void> {
+function buildServer(): McpServer {
   const server = new McpServer({ name: "finance-tracker", version: "1.0.0" });
 
   // ── get_summary ─────────────────────────────────────────────────────────
@@ -377,18 +379,34 @@ export async function setupMcp(): Promise<(req: IncomingMessage, res: ServerResp
     }
   );
 
-  // ── HTTP transport ─────────────────────────────────────────────────────
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  console.log("MCP server ready at /mcp");
+  return server;
+}
 
-  return (req, res) => {
-    transport.handleRequest(req as any, res as any).catch((err: any) => {
-      console.error("MCP transport error:", err);
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: err.message }));
-      }
-    });
+// ── SSE handler: GET /mcp/sse ──────────────────────────────────────────
+export async function mcpSseHandler(req: IncomingMessage, res: ServerResponse) {
+  const transport = new SSEServerTransport("/mcp/messages", res);
+  const server = buildServer();
+
+  transport.onclose = () => sessions.delete(transport.sessionId);
+  transport.onerror = (err: Error) => {
+    console.error("MCP SSE error:", err);
+    sessions.delete(transport.sessionId);
   };
+
+  sessions.set(transport.sessionId, transport);
+  console.log(`MCP session opened: ${transport.sessionId}`);
+  await server.connect(transport);
+}
+
+// ── Message handler: POST /mcp/messages ───────────────────────────────
+export async function mcpMessageHandler(req: IncomingMessage, res: ServerResponse) {
+  const url = new URL(req.url!, "http://localhost");
+  const sessionId = url.searchParams.get("sessionId") ?? "";
+  const transport = sessions.get(sessionId);
+  if (!transport) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Session not found" }));
+    return;
+  }
+  await transport.handlePostMessage(req, res);
 }
