@@ -78,7 +78,7 @@ function calcInterestExact(
   }
   if (remainder > 0) {
     const bruttoTeil = bal * (Math.pow(1 + rate / 100 / n, n * remainder) - 1);
-    const steuerpflichtigTeil = Math.max(0, bruttoTeil - freibetrag * remainder);
+    const steuerpflichtigTeil = Math.max(0, bruttoTeil - freibetrag);
     const nettoTeil = bruttoTeil - steuerpflichtigTeil * TAX_RATE;
     kumuliert += nettoTeil;
     bal += nettoTeil;
