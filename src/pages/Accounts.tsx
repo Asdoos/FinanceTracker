@@ -37,6 +37,37 @@ function calcInterestProjection(
   return results;
 }
 
+function calcInterestExact(
+  balance: number,
+  rate: number,
+  freibetrag: number,
+  until: string
+): { kumuliertNetto: number; endguthaben: number; label: string } {
+  const endDate = new Date(until + "T12:00:00");
+  const totalDays = Math.max(0, (endDate.getTime() - Date.now()) / 86_400_000);
+  const yearFraction = totalDays / 365.25;
+  const fullYears = Math.floor(yearFraction);
+  const remainder = yearFraction - fullYears;
+
+  let bal = balance;
+  let kumuliert = 0;
+  for (let y = 0; y < fullYears; y++) {
+    const { netto } = calcInterestYear(bal, rate, freibetrag);
+    kumuliert += netto;
+    bal += netto;
+  }
+  if (remainder > 0) {
+    const bruttoTeil = bal * (rate / 100) * remainder;
+    const steuerpflichtigTeil = Math.max(0, bruttoTeil - freibetrag * remainder);
+    const nettoTeil = bruttoTeil - steuerpflichtigTeil * TAX_RATE;
+    kumuliert += nettoTeil;
+    bal += nettoTeil;
+  }
+
+  const label = endDate.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return { kumuliertNetto: kumuliert, endguthaben: bal, label };
+}
+
 type Account = {
   id: number;
   name: string;
@@ -384,14 +415,21 @@ export default function Accounts() {
                                     <div key={r.year} className="grid grid-cols-3 text-xs bg-gray-800/30 rounded px-2 py-1.5">
                                       <span className="text-gray-400">
                                         {r.year} {r.year === 1 ? "Jahr" : "Jahre"}
-                                        {until && r.year === projYears[projYears.length - 1] && (
-                                          <span className="text-gray-600"> (Ende)</span>
-                                        )}
                                       </span>
                                       <span className="text-emerald-400 text-right font-medium">+{eur(r.kumuliertNetto)}</span>
                                       <span className="text-blue-400 text-right font-medium">{eur(r.endguthaben)}</span>
                                     </div>
                                   ))}
+                                  {until && (() => {
+                                    const exact = calcInterestExact(baseBalance, account.interestRate!, fbEffektiv, until);
+                                    return (
+                                      <div className="grid grid-cols-3 text-xs bg-emerald-900/20 border border-emerald-800/30 rounded px-2 py-1.5 mt-1">
+                                        <span className="text-emerald-500 font-medium">Bis {exact.label}</span>
+                                        <span className="text-emerald-400 text-right font-medium">+{eur(exact.kumuliertNetto)}</span>
+                                        <span className="text-blue-400 text-right font-medium">{eur(exact.endguthaben)}</span>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })()}
