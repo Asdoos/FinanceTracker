@@ -20,20 +20,21 @@ router.get("/", async (_req, res) => {
       interestRateUntil: r.interest_rate_until ?? null,
       actualBalance: r.actual_balance ?? null,
       actualBalanceDate: r.actual_balance_date ?? null,
+      interestInterval: r.interest_interval ?? null,
     }))
   );
 });
 
 // POST /api/accounts
 router.post("/", async (req, res) => {
-  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = req.body;
   if (!name || !color) {
     return res.status(400).json({ error: "name and color are required" });
   }
   const db = await getDb();
   const result = await db.run(
-    "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null]
+    "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null]
   );
   res.status(201).json({ id: result.lastId });
 });
@@ -41,7 +42,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/accounts/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate, interestInterval } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);
@@ -60,6 +61,7 @@ router.patch("/:id", async (req, res) => {
   if (interestRateUntil !== undefined) { fields.push("interest_rate_until = ?"); values.push(interestRateUntil ?? null); }
   if (actualBalance !== undefined) { fields.push("actual_balance = ?"); values.push(actualBalance ?? null); }
   if (actualBalanceDate !== undefined) { fields.push("actual_balance_date = ?"); values.push(actualBalanceDate ?? null); }
+  if (interestInterval !== undefined) { fields.push("interest_interval = ?"); values.push(interestInterval ?? null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

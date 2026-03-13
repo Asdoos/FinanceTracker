@@ -5,8 +5,26 @@ import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet, TrendingUp } fro
 
 const TAX_RATE = 0.26375; // Abgeltungssteuer 25% + Soli 5,5%
 
-function calcInterestYear(balance: number, rate: number, freibetrag: number) {
-  const brutto = balance * (rate / 100);
+function getPeriodsPerYear(interval?: string | null): number {
+  switch (interval) {
+    case "daily": return 365;
+    case "monthly": return 12;
+    case "quarterly": return 4;
+    case "semiannually": return 2;
+    default: return 1; // annually and null/undefined
+  }
+}
+
+const INTERVAL_LABELS: Record<string, string> = {
+  daily: "Täglich",
+  monthly: "Monatlich",
+  quarterly: "Vierteljährlich",
+  semiannually: "Halbjährlich",
+  annually: "Jährlich",
+};
+
+function calcInterestYear(balance: number, rate: number, freibetrag: number, n = 1) {
+  const brutto = balance * (Math.pow(1 + rate / 100 / n, n) - 1);
   const steuerpflichtig = Math.max(0, brutto - freibetrag);
   const steuer = steuerpflichtig * TAX_RATE;
   const netto = brutto - steuer;
@@ -17,7 +35,8 @@ function calcInterestProjection(
   balance: number,
   rate: number,
   freibetrag: number,
-  years: number[]
+  years: number[],
+  n = 1
 ): { year: number; kumuliertNetto: number; endguthaben: number }[] {
   const results = [];
   let bal = balance;
@@ -26,7 +45,7 @@ function calcInterestProjection(
   const maxYear = Math.max(...years);
 
   for (let y = 1; y <= maxYear; y++) {
-    const { netto } = calcInterestYear(bal, rate, freibetrag);
+    const { netto } = calcInterestYear(bal, rate, freibetrag, n);
     kumuliert += netto;
     bal += netto;
     if (years[yearIdx] === y) {
@@ -41,7 +60,8 @@ function calcInterestExact(
   balance: number,
   rate: number,
   freibetrag: number,
-  until: string
+  until: string,
+  n = 1
 ): { kumuliertNetto: number; endguthaben: number; label: string } {
   const endDate = new Date(until + "T12:00:00");
   const totalDays = Math.max(0, (endDate.getTime() - Date.now()) / 86_400_000);
@@ -52,12 +72,12 @@ function calcInterestExact(
   let bal = balance;
   let kumuliert = 0;
   for (let y = 0; y < fullYears; y++) {
-    const { netto } = calcInterestYear(bal, rate, freibetrag);
+    const { netto } = calcInterestYear(bal, rate, freibetrag, n);
     kumuliert += netto;
     bal += netto;
   }
   if (remainder > 0) {
-    const bruttoTeil = bal * (rate / 100) * remainder;
+    const bruttoTeil = bal * (Math.pow(1 + rate / 100 / n, n * remainder) - 1);
     const steuerpflichtigTeil = Math.max(0, bruttoTeil - freibetrag * remainder);
     const nettoTeil = bruttoTeil - steuerpflichtigTeil * TAX_RATE;
     kumuliert += nettoTeil;
@@ -78,6 +98,7 @@ type Account = {
   freibetragYear?: number | null;
   interestRate?: number | null;
   interestRateUntil?: string | null;
+  interestInterval?: string | null;
   actualBalance?: number | null;
   actualBalanceDate?: string | null;
 };
@@ -123,6 +144,7 @@ export default function Accounts() {
     freibetragYear: "",
     interestRate: "",
     interestRateUntil: "",
+    interestInterval: "",
   });
 
   const [balanceModal, setBalanceModal] = useState<Account | null>(null);
@@ -143,7 +165,7 @@ export default function Accounts() {
   const currentYear = new Date().getFullYear();
 
   function openAdd() {
-    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "", interestRate: "", interestRateUntil: "" });
+    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "", interestRate: "", interestRateUntil: "", interestInterval: "" });
     setEditId(null);
     setShowAdd(true);
   }
@@ -157,6 +179,7 @@ export default function Accounts() {
       freibetragYear: a.freibetragYear != null ? String(a.freibetragYear) : "",
       interestRate: a.interestRate != null ? String(a.interestRate) : "",
       interestRateUntil: a.interestRateUntil ?? "",
+      interestInterval: a.interestInterval ?? "",
     });
     setEditId(a.id);
     setShowAdd(true);
@@ -172,6 +195,7 @@ export default function Accounts() {
       freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
       interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
       interestRateUntil: form.interestRateUntil || null,
+      interestInterval: form.interestInterval || null,
     };
     if (editId) {
       await api.patch(`/accounts/${editId}`, payload);
@@ -288,6 +312,9 @@ export default function Accounts() {
                         <>
                           <div className={`text-xs mt-0.5 ${cls}`}>
                             Zinsen: {account.interestRate.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} % p.a.
+                            {account.interestInterval && account.interestInterval !== "annually" && (
+                              <span className="text-gray-500 ml-1">· {INTERVAL_LABELS[account.interestInterval]}</span>
+                            )}
                           </div>
                           <div className={`text-xs ${cls}`}>
                             {until
@@ -355,6 +382,7 @@ export default function Accounts() {
                       ? (account.freibetrag ?? 0)
                       : 0;
 
+                    const n = getPeriodsPerYear(account.interestInterval);
                     const projYears = until
                       ? (() => {
                           const endYear = new Date(until).getFullYear();
@@ -382,7 +410,7 @@ export default function Accounts() {
                           <>
                             {/* Jahresübersicht */}
                             {(() => {
-                              const { brutto, steuer, netto } = calcInterestYear(baseBalance, account.interestRate!, fbEffektiv);
+                              const { brutto, steuer, netto } = calcInterestYear(baseBalance, account.interestRate!, fbEffektiv, n);
                               return (
                                 <div className="grid grid-cols-3 gap-2 text-xs mb-3">
                                   <div className="bg-gray-800/40 rounded-lg p-2.5">
@@ -403,7 +431,7 @@ export default function Accounts() {
 
                             {/* Projektion */}
                             {(() => {
-                              const rows = calcInterestProjection(baseBalance, account.interestRate!, fbEffektiv, projYears);
+                              const rows = calcInterestProjection(baseBalance, account.interestRate!, fbEffektiv, projYears, n);
                               return (
                                 <div className="space-y-1">
                                   <div className="grid grid-cols-3 text-xs text-gray-600 px-1">
@@ -421,7 +449,7 @@ export default function Accounts() {
                                     </div>
                                   ))}
                                   {until && (() => {
-                                    const exact = calcInterestExact(baseBalance, account.interestRate!, fbEffektiv, until);
+                                    const exact = calcInterestExact(baseBalance, account.interestRate!, fbEffektiv, until, n);
                                     return (
                                       <div className="grid grid-cols-3 text-xs bg-emerald-900/20 border border-emerald-800/30 rounded px-2 py-1.5 mt-1">
                                         <span className="text-emerald-500 font-medium">Bis {exact.label}</span>
@@ -437,6 +465,7 @@ export default function Accounts() {
                             <p className="text-xs text-gray-700 mt-2">
                               Abgeltungssteuer 26,375% inkl. Soli
                               {fbEffektiv > 0 && ` · Freibetrag ${eur(fbEffektiv)}/Jahr`}
+                              {account.interestInterval && account.interestInterval !== "annually" && ` · Compounding: ${INTERVAL_LABELS[account.interestInterval] ?? account.interestInterval}`}
                             </p>
                           </>
                         )}
@@ -652,6 +681,22 @@ export default function Accounts() {
                   className="input"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-gray-400 font-medium">Zinsauszahlung / Compounding</label>
+              <select
+                value={form.interestInterval}
+                onChange={(e) => setForm((f) => ({ ...f, interestInterval: e.target.value }))}
+                className="input"
+              >
+                <option value="">Jährlich (Standard)</option>
+                <option value="daily">Täglich</option>
+                <option value="monthly">Monatlich</option>
+                <option value="quarterly">Vierteljährlich</option>
+                <option value="semiannually">Halbjährlich</option>
+                <option value="annually">Jährlich</option>
+              </select>
             </div>
 
             <div className="flex gap-3 pt-2">
