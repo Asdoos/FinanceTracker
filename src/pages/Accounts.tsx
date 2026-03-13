@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet } from "lucide-react";
 
 type Account = {
   id: number;
@@ -13,6 +13,8 @@ type Account = {
   freibetragYear?: number | null;
   interestRate?: number | null;
   interestRateUntil?: string | null;
+  actualBalance?: number | null;
+  actualBalanceDate?: string | null;
 };
 
 type AccountSummary = {
@@ -22,6 +24,10 @@ type AccountSummary = {
   rest: number;
   itemCount: number;
   freibetragMonthly: number;
+  actualBalance: number | null;
+  actualBalanceDate: string | null;
+  calculatedBalance: number | null;
+  balanceDelta: number | null;
 };
 
 type Summary = {
@@ -40,6 +46,8 @@ export default function Accounts() {
   const { data: accounts, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
   const { data: summary, refetch: refetchSummary } = useApi<Summary>("/summary");
 
+  const today = new Date().toISOString().slice(0, 10);
+
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({
@@ -51,6 +59,9 @@ export default function Accounts() {
     interestRate: "",
     interestRateUntil: "",
   });
+
+  const [balanceModal, setBalanceModal] = useState<Account | null>(null);
+  const [balanceForm, setBalanceForm] = useState({ balance: "", date: today });
 
   if (!accounts || !summary) {
     return (
@@ -116,6 +127,26 @@ export default function Accounts() {
     } catch (err: any) {
       alert(err.message);
     }
+  }
+
+  function openBalanceModal(account: Account) {
+    const s = accSummaryMap[account.id];
+    setBalanceForm({
+      balance: s?.actualBalance != null ? String(s.actualBalance) : "",
+      date: s?.actualBalanceDate ?? today,
+    });
+    setBalanceModal(account);
+  }
+
+  async function handleSetBalance() {
+    if (!balanceModal || !balanceForm.balance) return;
+    await api.patch(`/accounts/${balanceModal.id}`, {
+      actualBalance: parseFloat(balanceForm.balance),
+      actualBalanceDate: balanceForm.date || today,
+    });
+    setBalanceModal(null);
+    refetchAccounts();
+    refetchSummary();
   }
 
   return (
@@ -222,34 +253,141 @@ export default function Accounts() {
               </div>
 
               {s && (
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <p className="text-gray-500 text-xs mb-1">Einnahmen</p>
-                    <p className="text-green-400 font-medium">{eur(s.monthlyIncome)}</p>
-                    <p className="text-gray-600 text-xs">/Monat</p>
+                <>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <p className="text-gray-500 text-xs mb-1">Einnahmen</p>
+                      <p className="text-green-400 font-medium">{eur(s.monthlyIncome)}</p>
+                      <p className="text-gray-600 text-xs">/Monat</p>
+                    </div>
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <p className="text-gray-500 text-xs mb-1">Ausgaben</p>
+                      <p className="text-red-400 font-medium">{eur(s.monthlyExpenses)}</p>
+                      <p className="text-gray-600 text-xs">{s.itemCount} Posten</p>
+                    </div>
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <p className="text-gray-500 text-xs mb-1">Rest</p>
+                      <p
+                        className={`font-medium ${
+                          s.rest >= 0 ? "text-blue-400" : "text-orange-400"
+                        }`}
+                      >
+                        {eur(s.rest)}
+                      </p>
+                      <p className="text-gray-600 text-xs">/Monat</p>
+                    </div>
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <p className="text-gray-500 text-xs mb-1">Ausgaben</p>
-                    <p className="text-red-400 font-medium">{eur(s.monthlyExpenses)}</p>
-                    <p className="text-gray-600 text-xs">{s.itemCount} Posten</p>
+
+                  {/* Balance tracking section */}
+                  <div className="mt-3 border-t border-gray-800 pt-3">
+                    {s.actualBalance !== null ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                            <Wallet size={11} />
+                            Kontostand
+                            {s.actualBalanceDate && (
+                              <span className="text-gray-600">
+                                ({new Date(s.actualBalanceDate + "T12:00:00").toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })})
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            onClick={() => openBalanceModal(account)}
+                            className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
+                          >
+                            Aktualisieren
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="bg-gray-800/40 rounded-lg p-2.5">
+                            <p className="text-gray-500 mb-1">Ist-Saldo</p>
+                            <p className="text-white font-medium">{eur(s.actualBalance)}</p>
+                          </div>
+                          <div className="bg-gray-800/40 rounded-lg p-2.5">
+                            <p className="text-gray-500 mb-1">Errechnet</p>
+                            <p className="text-blue-400 font-medium">{eur(s.calculatedBalance!)}</p>
+                          </div>
+                          <div className="bg-gray-800/40 rounded-lg p-2.5">
+                            <p className="text-gray-500 mb-1">Bewegung</p>
+                            <p className={`font-medium ${s.balanceDelta! >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              {s.balanceDelta! >= 0 ? "+" : ""}{eur(s.balanceDelta!)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => openBalanceModal(account)}
+                        className="w-full text-xs text-gray-600 hover:text-blue-400 flex items-center gap-1.5 py-0.5 transition-colors"
+                      >
+                        <Wallet size={11} /> Kontostand erfassen
+                      </button>
+                    )}
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <p className="text-gray-500 text-xs mb-1">Rest</p>
-                    <p
-                      className={`font-medium ${
-                        s.rest >= 0 ? "text-blue-400" : "text-orange-400"
-                      }`}
-                    >
-                      {eur(s.rest)}
-                    </p>
-                    <p className="text-gray-600 text-xs">/Monat</p>
-                  </div>
-                </div>
+                </>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Balance Modal */}
+      {balanceModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-xs mx-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-white">Kontostand erfassen</h3>
+              <button onClick={() => setBalanceModal(null)} className="p-1 hover:bg-gray-800 rounded">
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-400 -mt-2">{balanceModal.name}</p>
+
+            <div className="space-y-1">
+              <label className="text-xs text-gray-400 font-medium">Aktueller Kontostand (€)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={balanceForm.balance}
+                onChange={(e) => setBalanceForm((f) => ({ ...f, balance: e.target.value }))}
+                className="input"
+                placeholder="0,00"
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-gray-400 font-medium">Datum (Referenztag)</label>
+              <input
+                type="date"
+                value={balanceForm.date}
+                onChange={(e) => setBalanceForm((f) => ({ ...f, date: e.target.value }))}
+                className="input"
+              />
+            </div>
+
+            <p className="text-xs text-gray-600">
+              Ab diesem Datum werden Transaktionen zum errechneten Saldo addiert.
+            </p>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setBalanceModal(null)}
+                className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleSetBalance}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+              >
+                <Check size={15} /> Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">

@@ -53,6 +53,17 @@ const SCHEMA = `
     note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS transaction_templates (
+    id SERIAL PRIMARY KEY,
+    label TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+    category_id INTEGER REFERENCES categories(id),
+    account_id INTEGER NOT NULL REFERENCES accounts(id),
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 `;
 
 /**
@@ -77,6 +88,8 @@ export async function createPostgresAdapter(
     try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
+    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_date DATE DEFAULT NULL"); } catch { /* already exists */ }
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {
     client.release();

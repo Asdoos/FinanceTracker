@@ -18,6 +18,8 @@ router.get("/", async (_req, res) => {
       freibetragYear: r.freibetrag_year ?? null,
       interestRate: r.interest_rate ?? null,
       interestRateUntil: r.interest_rate_until ?? null,
+      actualBalance: r.actual_balance ?? null,
+      actualBalanceDate: r.actual_balance_date ?? null,
     }))
   );
 });
@@ -39,7 +41,7 @@ router.post("/", async (req, res) => {
 // PATCH /api/accounts/:id
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil } = req.body;
+  const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate } = req.body;
 
   const db = await getDb();
   const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);
@@ -56,6 +58,8 @@ router.patch("/:id", async (req, res) => {
   if (freibetragYear !== undefined) { fields.push("freibetrag_year = ?"); values.push(freibetragYear ?? null); }
   if (interestRate !== undefined) { fields.push("interest_rate = ?"); values.push(interestRate ?? null); }
   if (interestRateUntil !== undefined) { fields.push("interest_rate_until = ?"); values.push(interestRateUntil ?? null); }
+  if (actualBalance !== undefined) { fields.push("actual_balance = ?"); values.push(actualBalance ?? null); }
+  if (actualBalanceDate !== undefined) { fields.push("actual_balance_date = ?"); values.push(actualBalanceDate ?? null); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 

@@ -21,6 +21,11 @@ router.get("/", async (_req, res) => {
     "SELECT type, SUM(amount) AS total FROM transactions WHERE date LIKE ? GROUP BY type",
     [`${currentMonth}-%`]
   );
+
+  // ── All transactions for balance tracking ──
+  const { rows: allTxRows } = await db.query(
+    "SELECT account_id, date, type, amount FROM transactions"
+  );
   const transactionExpensesThisMonth =
     txRows.find((r: any) => r.type === "expense")?.total ?? 0;
   const transactionIncomeThisMonth =
@@ -63,6 +68,25 @@ router.get("/", async (_req, res) => {
     const fbActive = fb > 0 && (account.freibetrag_year === null || account.freibetrag_year >= currentYear);
     const freibetragMonthly = fbActive ? fb / 12 : 0;
 
+    // ── Balance tracking ──
+    let actualBalance: number | null = null;
+    let actualBalanceDate: string | null = null;
+    let calculatedBalance: number | null = null;
+    let balanceDelta: number | null = null;
+
+    if (account.actual_balance !== null && account.actual_balance !== undefined) {
+      actualBalance = account.actual_balance;
+      actualBalanceDate = account.actual_balance_date ?? null;
+      const refDate = actualBalanceDate ?? "1970-01-01";
+      const netSince = allTxRows
+        .filter((tx: any) => tx.account_id === account.id && tx.date >= refDate)
+        .reduce((sum: number, tx: any) =>
+          sum + (tx.type === "income" ? tx.amount : -tx.amount), 0
+        );
+      calculatedBalance = actualBalance + netSince;
+      balanceDelta = netSince; // net movement since reference date
+    }
+
     return {
       account: {
         id: account.id,
@@ -78,6 +102,10 @@ router.get("/", async (_req, res) => {
       rest: monthlyIncome - monthlyExpenses,
       itemCount: accExp.length + accInc.length,
       freibetragMonthly,
+      actualBalance,
+      actualBalanceDate,
+      calculatedBalance,
+      balanceDelta,
     };
   });
 

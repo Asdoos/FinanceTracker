@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
 import Accounts from "./pages/Accounts";
 import Categories from "./pages/Categories";
 import Transactions from "./pages/Transactions";
+import Statistics from "./pages/Statistics";
+import Templates from "./pages/Templates";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 
 const nav = [
@@ -15,6 +17,8 @@ const nav = [
   { to: "/transactions", icon: Clock, label: "Transaktionen" },
   { to: "/accounts", icon: Landmark, label: "Konten" },
   { to: "/categories", icon: Tag, label: "Kategorien" },
+  { to: "/statistics", icon: BarChart2, label: "Statistiken" },
+  { to: "/templates", icon: Bookmark, label: "Vorlagen" },
 ];
 
 function MobileBottomNav() {
@@ -116,6 +120,8 @@ export default function App() {
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/categories" element={<Categories />} />
+            <Route path="/statistics" element={<Statistics />} />
+            <Route path="/templates" element={<Templates />} />
           </Routes>
         </main>
 

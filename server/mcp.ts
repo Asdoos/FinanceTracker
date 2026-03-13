@@ -503,6 +503,258 @@ function buildServer(): McpServer {
     }
   );
 
+  // ── list_templates ─────────────────────────────────────────────────────
+  server.tool(
+    "list_templates",
+    "List all transaction templates with category and account info",
+    { type: z.enum(["income", "expense"]).optional().describe("Filter by type") },
+    async ({ type }) => {
+      try {
+        const db = await getDb();
+        let sql = `
+          SELECT t.id, t.label, t.amount, t.type, t.category_id, t.account_id, t.note,
+                 c.name AS cat_name, c.color AS cat_color, a.name AS acc_name, a.color AS acc_color
+          FROM transaction_templates t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts   a ON a.id = t.account_id
+          WHERE 1=1
+        `;
+        const params: any[] = [];
+        if (type) { sql += " AND t.type = ?"; params.push(type); }
+        sql += " ORDER BY t.id DESC";
+        const { rows } = await db.query(sql, params);
+        const result = (rows as any[]).map((r) => ({
+          id: r.id, label: r.label, amount: r.amount, type: r.type,
+          categoryId: r.category_id, accountId: r.account_id, note: r.note || null,
+          category: r.cat_name ? { id: r.category_id, name: r.cat_name, color: r.cat_color } : null,
+          account: r.acc_name ? { id: r.account_id, name: r.acc_name, color: r.acc_color } : null,
+        }));
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── add_template ───────────────────────────────────────────────────────
+  server.tool(
+    "add_template",
+    "Create a new transaction template (no date — use book_template to create a transaction from it)",
+    {
+      label: z.string().describe("Template label/name"),
+      amount: z.number().describe("Default amount"),
+      type: z.enum(["income", "expense"]).describe("Transaction type"),
+      accountId: z.number().describe("Account ID"),
+      categoryId: z.number().optional().describe("Category ID (optional)"),
+      note: z.string().optional().describe("Optional note"),
+    },
+    async ({ label, amount, type, accountId, categoryId, note }) => {
+      try {
+        const db = await getDb();
+        const result = await db.run(
+          `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [label, amount, type, categoryId || null, accountId, note || null]
+        );
+        return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── update_template ────────────────────────────────────────────────────
+  server.tool(
+    "update_template",
+    "Update a transaction template (only pass fields to change)",
+    {
+      id: z.number().describe("Template ID"),
+      label: z.string().optional(),
+      amount: z.number().optional(),
+      type: z.enum(["income", "expense"]).optional(),
+      accountId: z.number().optional(),
+      categoryId: z.number().optional().describe("Pass 0 to clear category"),
+      note: z.string().optional(),
+    },
+    async ({ id, label, amount, type, accountId, categoryId, note }) => {
+      try {
+        const db = await getDb();
+        const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
+        if ((rows as any[]).length === 0) return {
+          content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
+        };
+        const fields: string[] = [];
+        const values: any[] = [];
+        if (label !== undefined) { fields.push("label = ?"); values.push(label); }
+        if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
+        if (type !== undefined) { fields.push("type = ?"); values.push(type); }
+        if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
+        if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId || null); }
+        if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
+        if (fields.length === 0) return {
+          content: [{ type: "text" as const, text: "No fields to update" }], isError: true
+        };
+        await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── delete_template ────────────────────────────────────────────────────
+  server.tool(
+    "delete_template",
+    "Delete a transaction template by ID",
+    { id: z.number().describe("Template ID to delete") },
+    async ({ id }) => {
+      try {
+        const db = await getDb();
+        const result = await db.run("DELETE FROM transaction_templates WHERE id = ?", [id]);
+        if (result.changes === 0) return {
+          content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
+        };
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── book_template ──────────────────────────────────────────────────────
+  server.tool(
+    "book_template",
+    "Book a transaction template for a specific date — creates a new transaction entry",
+    {
+      id: z.number().describe("Template ID to book"),
+      date: z.string().describe("Booking date in YYYY-MM-DD format"),
+    },
+    async ({ id, date }) => {
+      try {
+        const db = await getDb();
+        const { rows } = await db.query("SELECT * FROM transaction_templates WHERE id = ?", [id]);
+        if ((rows as any[]).length === 0) return {
+          content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
+        };
+        const tpl = (rows as any[])[0];
+        const result = await db.run(
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [date, tpl.label, tpl.amount, tpl.type, tpl.category_id, tpl.account_id, tpl.note]
+        );
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ id: result.lastId, date, label: tpl.label, amount: tpl.amount }),
+          }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── get_stats ──────────────────────────────────────────────────────────
+  server.tool(
+    "get_stats",
+    "Returns monthly income/expense statistics from one-time transactions, grouped by month and by category",
+    { months: z.number().int().min(0).optional().describe("Last N months (0 = all time, default 12)") },
+    async ({ months }) => {
+      try {
+        const db = await getDb();
+        const n = months ?? 12;
+
+        let cutoff: string | null = null;
+        if (n > 0) {
+          const now = new Date();
+          cutoff = new Date(now.getFullYear(), now.getMonth() - n + 1, 1)
+            .toISOString().slice(0, 10);
+        }
+
+        const monthlyParams: any[] = [];
+        let monthlyWhere = "";
+        if (cutoff) { monthlyWhere = "WHERE date >= ?"; monthlyParams.push(cutoff); }
+
+        const { rows: monthlyRaw } = await db.query(
+          `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
+           FROM transactions ${monthlyWhere}
+           GROUP BY substr(date, 1, 7), type ORDER BY month ASC`,
+          monthlyParams
+        );
+
+        const monthMap = new Map<string, { income: number; expenses: number }>();
+        for (const row of monthlyRaw as any[]) {
+          if (!monthMap.has(row.month)) monthMap.set(row.month, { income: 0, expenses: 0 });
+          const e = monthMap.get(row.month)!;
+          if (row.type === "income") e.income = Number(row.total);
+          else e.expenses = Number(row.total);
+        }
+        const monthly = Array.from(monthMap.entries()).map(([month, v]) => ({
+          month, income: v.income, expenses: v.expenses, net: v.income - v.expenses,
+        }));
+
+        const catParams: any[] = [];
+        let catWhere = "WHERE t.type = 'expense'";
+        if (cutoff) { catWhere += " AND t.date >= ?"; catParams.push(cutoff); }
+
+        const { rows: catRaw } = await db.query(
+          `SELECT t.category_id, COALESCE(c.name, 'Ohne Kategorie') AS name,
+                  COALESCE(c.color, '#6b7280') AS color, SUM(t.amount) AS total
+           FROM transactions t
+           LEFT JOIN categories c ON t.category_id = c.id
+           ${catWhere}
+           GROUP BY t.category_id ORDER BY total DESC`,
+          catParams
+        );
+
+        const byCategory = (catRaw as any[]).map((r) => ({
+          categoryId: r.category_id ?? null, name: r.name, color: r.color, total: Number(r.total),
+        }));
+
+        const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
+        const totalExpenses = monthly.reduce((s, m) => s + m.expenses, 0);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ monthly, byCategory, totalIncome, totalExpenses, months: n }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── set_account_balance ────────────────────────────────────────────────
+  server.tool(
+    "set_account_balance",
+    "Set the actual (real-world) account balance for an account. This creates a reference point; the app will then calculate the current expected balance by adding all transactions for this account since the reference date.",
+    {
+      id: z.number().describe("Account ID"),
+      balance: z.number().describe("Actual account balance (as seen in the banking app)"),
+      date: z.string().optional().describe("Reference date in YYYY-MM-DD format (defaults to today)"),
+    },
+    async ({ id, balance, date }) => {
+      try {
+        const db = await getDb();
+        const refDate = date ?? new Date().toISOString().slice(0, 10);
+        await db.run(
+          "UPDATE accounts SET actual_balance = ?, actual_balance_date = ? WHERE id = ?",
+          [balance, refDate, id]
+        );
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ ok: true, id, balance, date: refDate }),
+          }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
   return server;
 }
 
