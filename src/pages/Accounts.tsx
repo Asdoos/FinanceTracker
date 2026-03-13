@@ -1,7 +1,41 @@
 import { useState } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
+
+const TAX_RATE = 0.26375; // Abgeltungssteuer 25% + Soli 5,5%
+
+function calcInterestYear(balance: number, rate: number, freibetrag: number) {
+  const brutto = balance * (rate / 100);
+  const steuerpflichtig = Math.max(0, brutto - freibetrag);
+  const steuer = steuerpflichtig * TAX_RATE;
+  const netto = brutto - steuer;
+  return { brutto, steuer, netto };
+}
+
+function calcInterestProjection(
+  balance: number,
+  rate: number,
+  freibetrag: number,
+  years: number[]
+): { year: number; kumuliertNetto: number; endguthaben: number }[] {
+  const results = [];
+  let bal = balance;
+  let kumuliert = 0;
+  let yearIdx = 0;
+  const maxYear = Math.max(...years);
+
+  for (let y = 1; y <= maxYear; y++) {
+    const { netto } = calcInterestYear(bal, rate, freibetrag);
+    kumuliert += netto;
+    bal += netto;
+    if (years[yearIdx] === y) {
+      results.push({ year: y, kumuliertNetto: kumuliert, endguthaben: bal });
+      yearIdx++;
+    }
+  }
+  return results;
+}
 
 type Account = {
   id: number;
@@ -277,6 +311,100 @@ export default function Accounts() {
                       <p className="text-gray-600 text-xs">/Monat</p>
                     </div>
                   </div>
+
+                  {/* Interest calculation section */}
+                  {account.interestRate != null && account.interestRate > 0 && (() => {
+                    const today2 = new Date().toISOString().slice(0, 10);
+                    const until = account.interestRateUntil;
+                    if (until && until < today2) return null; // abgelaufen
+
+                    const baseBalance = s.calculatedBalance ?? s.actualBalance;
+                    const fbEffektiv = (account.freibetrag ?? 0) > 0 &&
+                      (account.freibetragYear == null || account.freibetragYear >= currentYear)
+                      ? (account.freibetrag ?? 0)
+                      : 0;
+
+                    const projYears = until
+                      ? (() => {
+                          const endYear = new Date(until).getFullYear();
+                          const nowYear = new Date().getFullYear();
+                          const laufzeit = endYear - nowYear;
+                          const base = [1, 2, 5].filter(y => y < laufzeit);
+                          if (laufzeit > 0 && !base.includes(laufzeit)) base.push(laufzeit);
+                          else if (laufzeit > 0) base[base.length - 1] = laufzeit;
+                          return base.length > 0 ? base : [laufzeit > 0 ? laufzeit : 1];
+                        })()
+                      : [1, 2, 5, 10];
+
+                    return (
+                      <div className="mt-3 border-t border-gray-800 pt-3">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <TrendingUp size={11} className="text-emerald-400" />
+                          <span className="text-xs text-gray-500">Zinsberechnung</span>
+                        </div>
+
+                        {baseBalance == null ? (
+                          <p className="text-xs text-gray-600 italic">
+                            Kontostand hinterlegen für Zinsberechnung
+                          </p>
+                        ) : (
+                          <>
+                            {/* Jahresübersicht */}
+                            {(() => {
+                              const { brutto, steuer, netto } = calcInterestYear(baseBalance, account.interestRate!, fbEffektiv);
+                              return (
+                                <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                                  <div className="bg-gray-800/40 rounded-lg p-2.5">
+                                    <p className="text-gray-500 mb-1">Brutto/Jahr</p>
+                                    <p className="text-white font-medium">{eur(brutto)}</p>
+                                  </div>
+                                  <div className="bg-gray-800/40 rounded-lg p-2.5">
+                                    <p className="text-gray-500 mb-1">Steuer</p>
+                                    <p className="text-red-400 font-medium">−{eur(steuer)}</p>
+                                  </div>
+                                  <div className="bg-gray-800/40 rounded-lg p-2.5">
+                                    <p className="text-gray-500 mb-1">Netto/Jahr</p>
+                                    <p className="text-emerald-400 font-medium">{eur(netto)}</p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Projektion */}
+                            {(() => {
+                              const rows = calcInterestProjection(baseBalance, account.interestRate!, fbEffektiv, projYears);
+                              return (
+                                <div className="space-y-1">
+                                  <div className="grid grid-cols-3 text-xs text-gray-600 px-1">
+                                    <span>Laufzeit</span>
+                                    <span className="text-right">Zinsen kum.</span>
+                                    <span className="text-right">Endguthaben</span>
+                                  </div>
+                                  {rows.map((r) => (
+                                    <div key={r.year} className="grid grid-cols-3 text-xs bg-gray-800/30 rounded px-2 py-1.5">
+                                      <span className="text-gray-400">
+                                        {r.year} {r.year === 1 ? "Jahr" : "Jahre"}
+                                        {until && r.year === projYears[projYears.length - 1] && (
+                                          <span className="text-gray-600"> (Ende)</span>
+                                        )}
+                                      </span>
+                                      <span className="text-emerald-400 text-right font-medium">+{eur(r.kumuliertNetto)}</span>
+                                      <span className="text-blue-400 text-right font-medium">{eur(r.endguthaben)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
+                            <p className="text-xs text-gray-700 mt-2">
+                              Abgeltungssteuer 26,375% inkl. Soli
+                              {fbEffektiv > 0 && ` · Freibetrag ${eur(fbEffektiv)}/Jahr`}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Balance tracking section */}
                   <div className="mt-3 border-t border-gray-800 pt-3">
