@@ -4,6 +4,23 @@ import fs from "fs";
 import type { DbAdapter, QueryResult } from "./adapter";
 
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -105,6 +122,24 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN interest_interval TEXT DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE expense_items ADD COLUMN due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+
+  // Multi-user migrations
+  try { db.exec("ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE categories ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE expense_items ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE income_sources ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE transactions ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE transaction_templates ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE goals ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+
+  // Indexes for user_id columns
+  try { db.exec("CREATE INDEX idx_accounts_user ON accounts(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_categories_user ON categories(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_expense_items_user ON expense_items(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_income_sources_user ON income_sources(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_transactions_user ON transactions(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* already exists */ }
+  try { db.exec("CREATE INDEX idx_goals_user ON goals(user_id)"); } catch { /* already exists */ }
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

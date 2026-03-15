@@ -8,6 +8,8 @@ import { mcpSseHandler, mcpMessageHandler } from "./mcp";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
+import authRouter from "./routes/auth";
+import { requireAuth } from "./auth/middleware";
 import accountsRouter from "./routes/accounts";
 import categoriesRouter from "./routes/categories";
 import expensesRouter from "./routes/expenses";
@@ -24,6 +26,12 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 
 app.use(cors());
 app.use(express.json());
+
+// ── Auth routes (no middleware — login/setup need no token) ──────────────
+app.use("/api/auth", authRouter);
+
+// ── Auth middleware for all other API routes ─────────────────────────────
+app.use("/api", requireAuth);
 
 // ── API routes ──────────────────────────────────────────────────────────────
 app.use("/api/accounts", accountsRouter);

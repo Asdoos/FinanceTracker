@@ -21,10 +21,10 @@ const AccountPatchSchema = AccountCreateSchema.extend({
 }).partial();
 
 // GET /api/accounts
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
-    const { rows } = await db.query("SELECT * FROM accounts ORDER BY id");
+    const { rows } = await db.query("SELECT * FROM accounts WHERE user_id = ? ORDER BY id", [req.user!.id]);
     res.json(
       rows.map((r: any) => ({
         id: r.id,
@@ -54,8 +54,8 @@ router.post("/", async (req, res, next) => {
     const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null]
+      "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -72,7 +72,7 @@ router.patch("/:id", async (req, res, next) => {
     const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate, interestInterval } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM accounts WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Account not found" });
 
     const fields: string[] = [];
@@ -93,8 +93,8 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE accounts SET ${fields.join(", ")} WHERE id = ?`,
-      [...values, id]
+      `UPDATE accounts SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      [...values, id, req.user!.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -109,10 +109,10 @@ router.delete("/:id", async (req, res, next) => {
     const db = await getDb();
 
     const { rows: expRows } = await db.query(
-      "SELECT COUNT(*) as c FROM expense_items WHERE account_id = ?", [id]
+      "SELECT COUNT(*) as c FROM expense_items WHERE account_id = ? AND user_id = ?", [id, req.user!.id]
     );
     const { rows: incRows } = await db.query(
-      "SELECT COUNT(*) as c FROM income_sources WHERE account_id = ?", [id]
+      "SELECT COUNT(*) as c FROM income_sources WHERE account_id = ? AND user_id = ?", [id, req.user!.id]
     );
 
     if (Number(expRows[0].c) > 0 || Number(incRows[0].c) > 0) {
@@ -121,7 +121,7 @@ router.delete("/:id", async (req, res, next) => {
       });
     }
 
-    const result = await db.run("DELETE FROM accounts WHERE id = ?", [id]);
+    const result = await db.run("DELETE FROM accounts WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Account not found" });
     res.json({ ok: true });
   } catch (err) {

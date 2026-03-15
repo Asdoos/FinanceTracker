@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 import type { IncomingMessage, ServerResponse } from "http";
+import crypto from "crypto";
 import { getDb } from "./db";
 
 const sessions = new Map<string, SSEServerTransport>();
@@ -9,7 +10,11 @@ const sessions = new Map<string, SSEServerTransport>();
 const toMonthly = (amount: number, type: string) =>
   type === "annual" ? amount / 12 : amount;
 
-function buildServer(): McpServer {
+function hashApiKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+function buildServer(userId: number): McpServer {
   const server = new McpServer({ name: "finance-tracker", version: "1.0.0" });
 
   // ── get_summary ─────────────────────────────────────────────────────────
@@ -19,10 +24,10 @@ function buildServer(): McpServer {
     async () => {
       try {
         const db = await getDb();
-        const { rows: expenses } = await db.query("SELECT * FROM expense_items");
-        const { rows: incomes } = await db.query("SELECT * FROM income_sources");
-        const { rows: accounts } = await db.query("SELECT * FROM accounts");
-        const { rows: categories } = await db.query("SELECT * FROM categories");
+        const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE user_id = ?", [userId]);
+        const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE user_id = ?", [userId]);
+        const { rows: accounts } = await db.query("SELECT * FROM accounts WHERE user_id = ?", [userId]);
+        const { rows: categories } = await db.query("SELECT * FROM categories WHERE user_id = ?", [userId]);
 
         const accMap = Object.fromEntries(accounts.map((a: any) => [a.id, a]));
         const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
@@ -115,7 +120,9 @@ function buildServer(): McpServer {
            FROM expense_items e
            LEFT JOIN categories c ON c.id = e.category_id
            LEFT JOIN accounts   a ON a.id = e.account_id
-           ORDER BY e.id`
+           WHERE e.user_id = ?
+           ORDER BY e.id`,
+          [userId]
         );
         const today = new Date().toISOString().slice(0, 10);
         const filtered = activeOnly
@@ -155,7 +162,9 @@ function buildServer(): McpServer {
           `SELECT i.*, a.name AS acc_name, a.color AS acc_color
            FROM income_sources i
            LEFT JOIN accounts a ON a.id = i.account_id
-           ORDER BY i.id`
+           WHERE i.user_id = ?
+           ORDER BY i.id`,
+          [userId]
         );
         const filtered = activeOnly ? rows.filter((r: any) => r.is_active) : rows;
         const result = filtered.map((r: any) => ({
@@ -175,7 +184,7 @@ function buildServer(): McpServer {
   server.tool("list_accounts", "List all accounts", async () => {
     try {
       const db = await getDb();
-      const { rows } = await db.query("SELECT * FROM accounts ORDER BY id");
+      const { rows } = await db.query("SELECT * FROM accounts WHERE user_id = ? ORDER BY id", [userId]);
       const result = rows.map((r: any) => ({
         id: r.id, name: r.name, color: r.color,
         description: r.description || null, isDefault: !!r.is_default,
@@ -192,7 +201,7 @@ function buildServer(): McpServer {
   server.tool("list_categories", "List all categories with budget info", async () => {
     try {
       const db = await getDb();
-      const { rows } = await db.query("SELECT * FROM categories ORDER BY id");
+      const { rows } = await db.query("SELECT * FROM categories WHERE user_id = ? ORDER BY id", [userId]);
       const result = rows.map((r: any) => ({
         id: r.id, name: r.name, color: r.color, icon: r.icon || null, budget: r.budget_limit ?? null,
       }));
@@ -220,10 +229,10 @@ function buildServer(): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [label, amount, type, categoryId, accountId,
-            isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null]
+            isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, userId]
         );
         return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
       } catch (err: any) {
@@ -248,9 +257,9 @@ function buildServer(): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO income_sources (label, amount, type, account_id, is_active, note)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null]
+          `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, userId]
         );
         return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
       } catch (err: any) {
@@ -277,7 +286,7 @@ function buildServer(): McpServer {
     async ({ id, label, amount, type, categoryId, accountId, isActive, note, endDate }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);
+        const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND user_id = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Expense ${id} not found` }], isError: true
         };
@@ -294,7 +303,7 @@ function buildServer(): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE expense_items SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        await db.run(`UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -318,7 +327,7 @@ function buildServer(): McpServer {
     async ({ id, label, amount, type, accountId, isActive, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ?", [id]);
+        const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND user_id = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Income ${id} not found` }], isError: true
         };
@@ -333,7 +342,7 @@ function buildServer(): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE income_sources SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        await db.run(`UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -349,7 +358,7 @@ function buildServer(): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM expense_items WHERE id = ?", [id]);
+        const result = await db.run("DELETE FROM expense_items WHERE id = ? AND user_id = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Expense ${id} not found` }], isError: true
         };
@@ -368,7 +377,7 @@ function buildServer(): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM income_sources WHERE id = ?", [id]);
+        const result = await db.run("DELETE FROM income_sources WHERE id = ? AND user_id = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Income ${id} not found` }], isError: true
         };
@@ -395,9 +404,9 @@ function buildServer(): McpServer {
           FROM transactions t
           LEFT JOIN categories c ON c.id = t.category_id
           LEFT JOIN accounts   a ON a.id = t.account_id
-          WHERE 1=1
+          WHERE t.user_id = ?
         `;
-        const params: any[] = [];
+        const params: any[] = [userId];
         if (type) { sql += " AND t.type = ?"; params.push(type); }
         if (month) { sql += " AND t.date LIKE ?"; params.push(`${month}-%`); }
         sql += " ORDER BY t.date DESC, t.id DESC";
@@ -432,9 +441,9 @@ function buildServer(): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [date, label, amount, type, categoryId || null, accountId, note || null]
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [date, label, amount, type, categoryId || null, accountId, note || null, userId]
         );
         return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
       } catch (err: any) {
@@ -460,7 +469,7 @@ function buildServer(): McpServer {
     async ({ id, date, label, amount, type, accountId, categoryId, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM transactions WHERE id = ?", [id]);
+        const { rows } = await db.query("SELECT id FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
         };
@@ -476,7 +485,7 @@ function buildServer(): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE transactions SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        await db.run(`UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -492,7 +501,7 @@ function buildServer(): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM transactions WHERE id = ?", [id]);
+        const result = await db.run("DELETE FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
         };
@@ -517,9 +526,9 @@ function buildServer(): McpServer {
           FROM transaction_templates t
           LEFT JOIN categories c ON c.id = t.category_id
           LEFT JOIN accounts   a ON a.id = t.account_id
-          WHERE 1=1
+          WHERE t.user_id = ?
         `;
-        const params: any[] = [];
+        const params: any[] = [userId];
         if (type) { sql += " AND t.type = ?"; params.push(type); }
         sql += " ORDER BY t.id DESC";
         const { rows } = await db.query(sql, params);
@@ -552,9 +561,9 @@ function buildServer(): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [label, amount, type, categoryId || null, accountId, note || null]
+          `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [label, amount, type, categoryId || null, accountId, note || null, userId]
         );
         return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
       } catch (err: any) {
@@ -579,7 +588,7 @@ function buildServer(): McpServer {
     async ({ id, label, amount, type, accountId, categoryId, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
+        const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
         if ((rows as any[]).length === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
@@ -594,7 +603,7 @@ function buildServer(): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+        await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -610,7 +619,7 @@ function buildServer(): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM transaction_templates WHERE id = ?", [id]);
+        const result = await db.run("DELETE FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
@@ -632,15 +641,15 @@ function buildServer(): McpServer {
     async ({ id, date }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT * FROM transaction_templates WHERE id = ?", [id]);
+        const { rows } = await db.query("SELECT * FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
         if ((rows as any[]).length === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
         const tpl = (rows as any[])[0];
         const result = await db.run(
-          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [date, tpl.label, tpl.amount, tpl.type, tpl.category_id, tpl.account_id, tpl.note]
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [date, tpl.label, tpl.amount, tpl.type, tpl.category_id, tpl.account_id, tpl.note, userId]
         );
         return {
           content: [{
@@ -671,9 +680,9 @@ function buildServer(): McpServer {
             .toISOString().slice(0, 10);
         }
 
-        const monthlyParams: any[] = [];
-        let monthlyWhere = "";
-        if (cutoff) { monthlyWhere = "WHERE date >= ?"; monthlyParams.push(cutoff); }
+        const monthlyParams: any[] = [userId];
+        let monthlyWhere = "WHERE user_id = ?";
+        if (cutoff) { monthlyWhere += " AND date >= ?"; monthlyParams.push(cutoff); }
 
         const { rows: monthlyRaw } = await db.query(
           `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
@@ -693,8 +702,8 @@ function buildServer(): McpServer {
           month, income: v.income, expenses: v.expenses, net: v.income - v.expenses,
         }));
 
-        const catParams: any[] = [];
-        let catWhere = "WHERE t.type = 'expense'";
+        const catParams: any[] = [userId];
+        let catWhere = "WHERE t.type = 'expense' AND t.user_id = ?";
         if (cutoff) { catWhere += " AND t.date >= ?"; catParams.push(cutoff); }
 
         const { rows: catRaw } = await db.query(
@@ -740,8 +749,8 @@ function buildServer(): McpServer {
         const db = await getDb();
         const refDate = date ?? new Date().toISOString().slice(0, 10);
         await db.run(
-          "UPDATE accounts SET actual_balance = ?, actual_balance_date = ? WHERE id = ?",
-          [balance, refDate, id]
+          "UPDATE accounts SET actual_balance = ?, actual_balance_date = ? WHERE id = ? AND user_id = ?",
+          [balance, refDate, id, userId]
         );
         return {
           content: [{
@@ -760,8 +769,37 @@ function buildServer(): McpServer {
 
 // ── SSE handler: GET /mcp/sse ──────────────────────────────────────────
 export async function mcpSseHandler(req: IncomingMessage, res: ServerResponse) {
+  // ── Authenticate via API key ──────────────────────────────────────────
+  const url = new URL(req.url!, "http://localhost");
+  const apiKey = url.searchParams.get("apiKey") || req.headers["x-api-key"] as string | undefined;
+
+  if (!apiKey) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Missing API key" }));
+    return;
+  }
+
+  const hashed = hashApiKey(apiKey);
+  const db = await getDb();
+  const { rows } = await db.query(
+    `SELECT u.id AS user_id
+     FROM api_keys ak
+     JOIN users u ON u.id = ak.user_id
+     WHERE ak.key_hash = ?`,
+    [hashed]
+  );
+
+  if (rows.length === 0) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid API key" }));
+    return;
+  }
+
+  const userId: number = (rows[0] as any).user_id;
+
+  // ── Set up MCP transport ──────────────────────────────────────────────
   const transport = new SSEServerTransport("/mcp/messages", res);
-  const server = buildServer();
+  const server = buildServer(userId);
 
   transport.onclose = () => sessions.delete(transport.sessionId);
   transport.onerror = (err: Error) => {
@@ -770,7 +808,7 @@ export async function mcpSseHandler(req: IncomingMessage, res: ServerResponse) {
   };
 
   sessions.set(transport.sessionId, transport);
-  console.log(`MCP session opened: ${transport.sessionId}`);
+  console.log(`MCP session opened: ${transport.sessionId} (user ${userId})`);
   await server.connect(transport);
 }
 

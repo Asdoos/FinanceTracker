@@ -18,7 +18,7 @@ const ExpenseCreateSchema = z.object({
 const ExpensePatchSchema = ExpenseCreateSchema.partial();
 
 // GET /api/expenses
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
@@ -31,7 +31,9 @@ router.get("/", async (_req, res, next) => {
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       ORDER BY e.id`
+       WHERE e.user_id = ?
+       ORDER BY e.id`,
+      [req.user!.id]
     );
 
     const totalMonthly = rows
@@ -81,9 +83,9 @@ router.post("/", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, dueMonth ?? null]
+      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, dueMonth ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -100,7 +102,7 @@ router.patch("/:id", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Expense not found" });
 
     const fields: string[] = [];
@@ -119,8 +121,8 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ?`,
-      [...values, id]
+      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      [...values, id, req.user!.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -132,7 +134,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM expense_items WHERE id = ?", [req.params.id]);
+    const result = await db.run("DELETE FROM expense_items WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Expense not found" });
     res.json({ ok: true });
   } catch (err) {

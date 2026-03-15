@@ -13,10 +13,10 @@ const CategoryCreateSchema = z.object({
 const CategoryPatchSchema = CategoryCreateSchema.partial();
 
 // GET /api/categories
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
-    const { rows } = await db.query("SELECT * FROM categories ORDER BY id");
+    const { rows } = await db.query("SELECT * FROM categories WHERE user_id = ? ORDER BY id", [req.user!.id]);
     res.json(
       rows.map((r: any) => ({
         id: r.id,
@@ -39,8 +39,8 @@ router.post("/", async (req, res, next) => {
     const { name, color, icon, budget } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      "INSERT INTO categories (name, color, icon, budget_limit) VALUES (?, ?, ?, ?)",
-      [name, color, icon || null, budget ?? null]
+      "INSERT INTO categories (name, color, icon, budget_limit, user_id) VALUES (?, ?, ?, ?, ?)",
+      [name, color, icon || null, budget ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -57,7 +57,7 @@ router.patch("/:id", async (req, res, next) => {
     const { name, color, icon, budget } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM categories WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM categories WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Category not found" });
 
     const fields: string[] = [];
@@ -71,8 +71,8 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE categories SET ${fields.join(", ")} WHERE id = ?`,
-      [...values, id]
+      `UPDATE categories SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      [...values, id, req.user!.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -87,7 +87,7 @@ router.delete("/:id", async (req, res, next) => {
     const db = await getDb();
 
     const { rows } = await db.query(
-      "SELECT COUNT(*) as c FROM expense_items WHERE category_id = ?", [id]
+      "SELECT COUNT(*) as c FROM expense_items WHERE category_id = ? AND user_id = ?", [id, req.user!.id]
     );
 
     if (Number(rows[0].c) > 0) {
@@ -96,7 +96,7 @@ router.delete("/:id", async (req, res, next) => {
       });
     }
 
-    const result = await db.run("DELETE FROM categories WHERE id = ?", [id]);
+    const result = await db.run("DELETE FROM categories WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Category not found" });
     res.json({ ok: true });
   } catch (err) {

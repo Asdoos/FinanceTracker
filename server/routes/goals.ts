@@ -16,14 +16,16 @@ const GoalCreateSchema = z.object({
 const GoalPatchSchema = GoalCreateSchema.partial();
 
 // GET /api/goals
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
       `SELECT g.*, a.name AS acc_name, a.color AS acc_color
        FROM goals g
        LEFT JOIN accounts a ON a.id = g.account_id
-       ORDER BY g.created_at DESC`
+       WHERE g.user_id = ?
+       ORDER BY g.created_at DESC`,
+      [req.user!.id]
     );
     res.json(
       (rows as any[]).map((r) => ({
@@ -51,9 +53,9 @@ router.post("/", async (req, res, next) => {
     const { name, targetAmount, currentAmount, color, dueDate, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO goals (name, target_amount, current_amount, color, due_date, account_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, targetAmount, currentAmount ?? 0, color ?? "#3b82f6", dueDate ?? null, accountId ?? null, note ?? null]
+      `INSERT INTO goals (name, target_amount, current_amount, color, due_date, account_id, note, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, targetAmount, currentAmount ?? 0, color ?? "#3b82f6", dueDate ?? null, accountId ?? null, note ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -69,7 +71,7 @@ router.patch("/:id", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM goals WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM goals WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Goal not found" });
 
     const { name, targetAmount, currentAmount, color, dueDate, accountId, note } = parsed.data;
@@ -86,7 +88,7 @@ router.patch("/:id", async (req, res, next) => {
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-    await db.run(`UPDATE goals SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+    await db.run(`UPDATE goals SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, req.user!.id]);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -97,7 +99,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM goals WHERE id = ?", [req.params.id]);
+    const result = await db.run("DELETE FROM goals WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Goal not found" });
     res.json({ ok: true });
   } catch (err) {

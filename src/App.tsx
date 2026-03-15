@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark, Search, CalendarDays, Target } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark, Search, CalendarDays, Target, Users, LogOut } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
@@ -12,8 +12,12 @@ import Statistics from "./pages/Statistics";
 import Templates from "./pages/Templates";
 import Calendar from "./pages/Calendar";
 import Goals from "./pages/Goals";
+import Login from "./pages/Login";
+import Setup from "./pages/Setup";
+import UserManagement from "./pages/UserManagement";
 import { CommandPalette } from "./components/CommandPalette";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
 const nav = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -81,7 +85,8 @@ function VersionFooter() {
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
+  const { user, logout } = useAuth();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
@@ -96,7 +101,7 @@ export default function App() {
   }, []);
 
   return (
-    <BrowserRouter>
+    <>
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar — nur auf md+ sichtbar */}
         <aside className="hidden md:flex w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex-col">
@@ -137,7 +142,45 @@ export default function App() {
                 {label}
               </NavLink>
             ))}
+            {user?.isAdmin && (
+              <NavLink
+                to="/users"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white font-medium"
+                      : "text-gray-400 hover:text-gray-100 hover:bg-gray-800"
+                  }`
+                }
+              >
+                <Users size={16} />
+                Benutzer
+              </NavLink>
+            )}
           </nav>
+
+          {/* User info + logout */}
+          <div className="px-3 py-2 border-t border-gray-800">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
+                {(user?.displayName || user?.email || "?")[0].toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-white truncate">{user?.displayName || user?.email}</p>
+                {user?.displayName && (
+                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                )}
+              </div>
+              <button
+                onClick={logout}
+                className="text-gray-500 hover:text-gray-300 transition-colors p-1"
+                title="Abmelden"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          </div>
+
           <VersionFooter />
         </aside>
 
@@ -154,6 +197,8 @@ export default function App() {
             <Route path="/templates" element={<Templates />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/goals" element={<Goals />} />
+            {user?.isAdmin && <Route path="/users" element={<UserManagement />} />}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
 
@@ -161,13 +206,55 @@ export default function App() {
         <MobileBottomNav />
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          style: { background: "#1f2937", color: "#f9fafb", border: "1px solid #374151" },
-          duration: 3000,
-        }}
-      />
+    </>
+  );
+}
+
+function AppRouter() {
+  const { user, loading, setupComplete } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      {setupComplete === false && (
+        <>
+          <Route path="/setup" element={<Setup />} />
+          <Route path="*" element={<Navigate to="/setup" replace />} />
+        </>
+      )}
+      {setupComplete && !user && (
+        <>
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </>
+      )}
+      {user && (
+        <Route path="/*" element={<AuthenticatedApp />} />
+      )}
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRouter />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: { background: "#1f2937", color: "#f9fafb", border: "1px solid #374151" },
+            duration: 3000,
+          }}
+        />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

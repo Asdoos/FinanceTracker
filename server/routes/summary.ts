@@ -7,25 +7,27 @@ const toMonthly = (amount: number, type: string) =>
   type === "annual" ? amount / 12 : amount;
 
 // GET /api/summary
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const userId = req.user!.id;
 
-    const { rows: expenses } = await db.query("SELECT * FROM expense_items");
-    const { rows: incomes } = await db.query("SELECT * FROM income_sources");
-    const { rows: accounts } = await db.query("SELECT * FROM accounts");
-    const { rows: categories } = await db.query("SELECT * FROM categories");
+    const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE user_id = ?", [userId]);
+    const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE user_id = ?", [userId]);
+    const { rows: accounts } = await db.query("SELECT * FROM accounts WHERE user_id = ?", [userId]);
+    const { rows: categories } = await db.query("SELECT * FROM categories WHERE user_id = ?", [userId]);
 
     // ── Current-month transaction sums ──
     const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
     const { rows: txRows } = await db.query(
-      "SELECT type, SUM(amount) AS total FROM transactions WHERE date LIKE ? GROUP BY type",
-      [`${currentMonth}-%`]
+      "SELECT type, SUM(amount) AS total FROM transactions WHERE user_id = ? AND date LIKE ? GROUP BY type",
+      [userId, `${currentMonth}-%`]
     );
 
     // ── All transactions for balance tracking ──
     const { rows: allTxRows } = await db.query(
-      "SELECT account_id, date, type, amount FROM transactions"
+      "SELECT account_id, date, type, amount FROM transactions WHERE user_id = ?",
+      [userId]
     );
     const transactionExpensesThisMonth =
       txRows.find((r: any) => r.type === "expense")?.total ?? 0;
@@ -116,9 +118,9 @@ router.get("/", async (_req, res, next) => {
     const { rows: catTxRows } = await db.query(
       `SELECT category_id, SUM(amount) AS total
        FROM transactions
-       WHERE type = 'expense' AND date LIKE ?
+       WHERE user_id = ? AND type = 'expense' AND date LIKE ?
        GROUP BY category_id`,
-      [`${currentMonth}-%`]
+      [userId, `${currentMonth}-%`]
     );
     const catTxMap: Record<string, number> = Object.fromEntries(
       (catTxRows as any[]).map((r: any) => [String(r.category_id ?? "null"), Number(r.total)])

@@ -12,7 +12,7 @@ function toCsv(header: string, rows: any[][]): string {
 }
 
 // GET /api/export/transactions
-router.get("/transactions", async (_req, res, next) => {
+router.get("/transactions", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
@@ -21,7 +21,9 @@ router.get("/transactions", async (_req, res, next) => {
        FROM transactions t
        LEFT JOIN categories c ON c.id = t.category_id
        LEFT JOIN accounts   a ON a.id = t.account_id
-       ORDER BY t.date DESC`
+       WHERE t.user_id = ?
+       ORDER BY t.date DESC`,
+      [req.user!.id]
     );
     const header = "Datum;Bezeichnung;Betrag;Typ;Kategorie;Konto;Notiz\n";
     const data = (rows as any[]).map((r) => [
@@ -36,7 +38,7 @@ router.get("/transactions", async (_req, res, next) => {
 });
 
 // GET /api/export/expenses
-router.get("/expenses", async (_req, res, next) => {
+router.get("/expenses", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
@@ -45,7 +47,9 @@ router.get("/expenses", async (_req, res, next) => {
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       ORDER BY e.label`
+       WHERE e.user_id = ?
+       ORDER BY e.label`,
+      [req.user!.id]
     );
     const header = "Bezeichnung;Betrag;Typ;Kategorie;Konto;Aktiv;Enddatum;Notiz\n";
     const data = (rows as any[]).map((r) => [
@@ -62,7 +66,7 @@ router.get("/expenses", async (_req, res, next) => {
 });
 
 // GET /api/export/income
-router.get("/income", async (_req, res, next) => {
+router.get("/income", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
@@ -70,7 +74,9 @@ router.get("/income", async (_req, res, next) => {
               a.name AS account
        FROM income_sources i
        LEFT JOIN accounts a ON a.id = i.account_id
-       ORDER BY i.label`
+       WHERE i.user_id = ?
+       ORDER BY i.label`,
+      [req.user!.id]
     );
     const header = "Bezeichnung;Betrag;Typ;Konto;Aktiv;Notiz\n";
     const data = (rows as any[]).map((r) => [

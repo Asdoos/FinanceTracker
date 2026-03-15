@@ -5,6 +5,8 @@ services:
       - "3001:3001"
     volumes:
       - finance-data:/data
+    environment:
+      - JWT_SECRET=change-me-to-a-random-secret-at-least-32-chars
     restart: unless-stopped
 
 volumes:

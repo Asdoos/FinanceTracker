@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Finance Tracker",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js", "run", "dev:all"],
+      "port": 5173,
+      "env": {
+        "JWT_SECRET": "dev-secret-for-preview-at-least-32-characters-long"
+      }
+    }
+  ]
+}

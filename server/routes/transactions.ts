@@ -33,9 +33,9 @@ router.get("/", async (req, res, next) => {
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts   a ON a.id = t.account_id
-      WHERE 1=1
+      WHERE t.user_id = ?
     `;
-    const params: any[] = [];
+    const params: any[] = [req.user!.id];
 
     if (type) {
       sql += " AND t.type = ?";
@@ -81,9 +81,9 @@ router.post("/", async (req, res, next) => {
     const { date, label, amount, type, categoryId, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [date, label, amount, type, categoryId || null, accountId, note || null]
+      `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [date, label, amount, type, categoryId || null, accountId, note || null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -100,7 +100,7 @@ router.patch("/:id", async (req, res, next) => {
     const { date, label, amount, type, categoryId, accountId, note } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM transactions WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM transactions WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
 
     const fields: string[] = [];
@@ -117,8 +117,8 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ?`,
-      [...values, id]
+      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      [...values, id, req.user!.id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -130,7 +130,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM transactions WHERE id = ?", [req.params.id]);
+    const result = await db.run("DELETE FROM transactions WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Transaction not found" });
     res.json({ ok: true });
   } catch (err) {

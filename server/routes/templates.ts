@@ -14,15 +14,6 @@ const TemplateCreateSchema = z.object({
 });
 const TemplatePatchSchema = TemplateCreateSchema.partial();
 
-const SELECT_SQL = `
-  SELECT t.id, t.label, t.amount, t.type, t.category_id, t.account_id, t.note,
-         c.name AS cat_name, c.color AS cat_color,
-         a.name AS acc_name, a.color AS acc_color
-  FROM transaction_templates t
-  LEFT JOIN categories c ON c.id = t.category_id
-  LEFT JOIN accounts   a ON a.id = t.account_id
-`;
-
 function mapRow(r: any) {
   return {
     id: r.id,
@@ -38,18 +29,21 @@ function mapRow(r: any) {
 }
 
 // GET /api/templates/suggestions  (must be before "/:id" routes)
-router.get("/suggestions", async (_req, res, next) => {
+router.get("/suggestions", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows: candidates } = await db.query(
       `SELECT lower(t.label) AS key, t.label, t.account_id, t.type,
               ROUND(AVG(t.amount), 2) AS avg_amount, COUNT(*) AS cnt
        FROM transactions t
+       WHERE t.user_id = ?
        GROUP BY lower(t.label), t.account_id, t.type
-       HAVING cnt >= 3`
+       HAVING cnt >= 3`,
+      [req.user!.id]
     );
     const { rows: templates } = await db.query(
-      "SELECT lower(label) AS key, account_id, type FROM transaction_templates"
+      "SELECT lower(label) AS key, account_id, type FROM transaction_templates WHERE user_id = ?",
+      [req.user!.id]
     );
     const tmplSet = new Set(
       (templates as any[]).map((t: any) => `${t.key}|${t.account_id}|${t.type}`)
@@ -74,10 +68,18 @@ router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
     const { type } = req.query;
-    let sql = SELECT_SQL;
-    const params: any[] = [];
+    let sql = `
+      SELECT t.id, t.label, t.amount, t.type, t.category_id, t.account_id, t.note,
+             c.name AS cat_name, c.color AS cat_color,
+             a.name AS acc_name, a.color AS acc_color
+      FROM transaction_templates t
+      LEFT JOIN categories c ON c.id = t.category_id
+      LEFT JOIN accounts   a ON a.id = t.account_id
+      WHERE t.user_id = ?
+    `;
+    const params: any[] = [req.user!.id];
     if (type) {
-      sql += " WHERE t.type = ?";
+      sql += " AND t.type = ?";
       params.push(type);
     }
     sql += " ORDER BY t.id DESC";
@@ -96,9 +98,9 @@ router.post("/", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [label, amount, type, categoryId || null, accountId, note || null]
+      `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [label, amount, type, categoryId || null, accountId, note || null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -111,7 +113,7 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
+    const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if ((rows as any[]).length === 0) return res.status(404).json({ error: "Not found" });
 
     const patchParsed = TemplatePatchSchema.safeParse(req.body);
@@ -127,7 +129,7 @@ router.patch("/:id", async (req, res, next) => {
     if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-    await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+    await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, req.user!.id]);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -139,7 +141,7 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const db = await getDb();
-    const result = await db.run("DELETE FROM transaction_templates WHERE id = ?", [id]);
+    const result = await db.run("DELETE FROM transaction_templates WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Not found" });
     res.json({ ok: true });
   } catch (err) {

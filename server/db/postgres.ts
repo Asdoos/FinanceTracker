@@ -2,6 +2,23 @@ import pg from "pg";
 import type { DbAdapter, QueryResult } from "./adapter";
 
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL,
+    label TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
   CREATE TABLE IF NOT EXISTS accounts (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -103,6 +120,25 @@ export async function createPostgresAdapter(
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_date DATE DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+
+    // Multi-user migrations
+    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE income_sources ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE transaction_templates ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    try { await client.query("ALTER TABLE goals ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+
+    // Indexes
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_expense_items_user ON expense_items(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_income_sources_user ON income_sources(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* ignore */ }
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id)"); } catch { /* ignore */ }
+
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {
     client.release();
