@@ -64,6 +64,18 @@ const SCHEMA = `
     note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS goals (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    target_amount DOUBLE PRECISION NOT NULL,
+    current_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+    color TEXT NOT NULL DEFAULT '#3b82f6',
+    due_date TEXT DEFAULT NULL,
+    account_id INTEGER REFERENCES accounts(id),
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 `;
 
 /**
@@ -90,6 +102,7 @@ export async function createPostgresAdapter(
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_date DATE DEFAULT NULL"); } catch { /* already exists */ }
+    try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {
     client.release();

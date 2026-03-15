@@ -69,6 +69,18 @@ const SCHEMA = `
     note TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    target_amount REAL NOT NULL,
+    current_amount REAL NOT NULL DEFAULT 0,
+    color TEXT NOT NULL DEFAULT '#3b82f6',
+    due_date TEXT DEFAULT NULL,
+    account_id INTEGER REFERENCES accounts(id),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `;
 
 export function createSqliteAdapter(dbPath?: string): DbAdapter {
@@ -92,6 +104,7 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance REAL DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN interest_interval TEXT DEFAULT NULL"); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE expense_items ADD COLUMN due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark, Search } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark, Search, CalendarDays, Target } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
@@ -10,6 +10,8 @@ import Categories from "./pages/Categories";
 import Transactions from "./pages/Transactions";
 import Statistics from "./pages/Statistics";
 import Templates from "./pages/Templates";
+import Calendar from "./pages/Calendar";
+import Goals from "./pages/Goals";
 import { CommandPalette } from "./components/CommandPalette";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 
@@ -22,6 +24,8 @@ const nav = [
   { to: "/categories", icon: Tag, label: "Kategorien" },
   { to: "/statistics", icon: BarChart2, label: "Statistiken" },
   { to: "/templates", icon: Bookmark, label: "Vorlagen" },
+  { to: "/calendar", icon: CalendarDays, label: "Kalender" },
+  { to: "/goals", icon: Target, label: "Sparziele" },
 ];
 
 function MobileBottomNav() {
@@ -148,6 +152,8 @@ export default function App() {
             <Route path="/categories" element={<Categories />} />
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/templates" element={<Templates />} />
+            <Route path="/calendar" element={<Calendar />} />
+            <Route path="/goals" element={<Goals />} />
           </Routes>
         </main>
 

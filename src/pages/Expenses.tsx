@@ -15,6 +15,7 @@ type ExpenseItem = {
   isActive: boolean;
   note?: string;
   endDate?: string | null;
+  dueMonth?: number | null;
   category: { id: number; name: string; color: string } | null;
   account: { id: number; name: string; color: string } | null;
   categoryId: number;
@@ -23,6 +24,8 @@ type ExpenseItem = {
 
 type Account = { id: number; name: string; color: string };
 type Category = { id: number; name: string; color: string };
+
+const MONTH_NAMES = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
 const INITIAL_FORM = {
   label: "",
@@ -33,6 +36,7 @@ const INITIAL_FORM = {
   isActive: true,
   note: "",
   endDate: "",
+  dueMonth: "" as "" | string,
 };
 
 export default function Expenses() {
@@ -157,6 +161,7 @@ export default function Expenses() {
       isActive: e.isActive,
       note: e.note ?? "",
       endDate: e.endDate ?? "",
+      dueMonth: e.dueMonth != null ? String(e.dueMonth) : "",
     });
     setEditItem(e);
     setMutationError(null);
@@ -177,6 +182,7 @@ export default function Expenses() {
         isActive: form.isActive,
         note: form.note || undefined,
         endDate: form.endDate || null,
+        dueMonth: form.dueMonth !== "" ? parseInt(form.dueMonth) : null,
       };
       if (editItem) {
         await api.patch(`/expenses/${editItem.id}`, payload);
@@ -597,6 +603,21 @@ export default function Expenses() {
                 className="input"
               />
             </Field>
+
+            {form.type === "annual" && (
+              <Field label="Fälligkeitsmonat (optional)">
+                <select
+                  value={form.dueMonth}
+                  onChange={(e) => setForm((f) => ({ ...f, dueMonth: e.target.value }))}
+                  className="input"
+                >
+                  <option value="">— Keine Angabe —</option>
+                  {MONTH_NAMES.map((m, i) => (
+                    <option key={i + 1} value={String(i + 1)}>{m}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             {editItem && (
               <Field label="Status">

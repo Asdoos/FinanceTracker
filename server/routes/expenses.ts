@@ -13,6 +13,7 @@ const ExpenseCreateSchema = z.object({
   isActive: z.boolean().optional(),
   note: z.string().nullable().optional(),
   endDate: z.string().nullable().optional(),
+  dueMonth: z.number().int().min(1).max(12).nullable().optional(),
 });
 const ExpensePatchSchema = ExpenseCreateSchema.partial();
 
@@ -54,6 +55,7 @@ router.get("/", async (_req, res, next) => {
           isActive: !!r.is_active,
           note: r.note || undefined,
           endDate: r.end_date || null,
+          dueMonth: r.due_month ?? null,
           monthlyAmount,
           shareOfTotal:
             totalMonthly > 0 ? (monthlyAmount / totalMonthly) * 100 : 0,
@@ -76,12 +78,12 @@ router.post("/", async (req, res, next) => {
   try {
     const parsed = ExpenseCreateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = parsed.data;
+    const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null]
+      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, dueMonth ?? null]
     );
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -95,7 +97,7 @@ router.patch("/:id", async (req, res, next) => {
     const { id } = req.params;
     const parsed = ExpensePatchSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = parsed.data;
+    const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);
@@ -112,6 +114,7 @@ router.patch("/:id", async (req, res, next) => {
     if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
     if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
     if (endDate !== undefined) { fields.push("end_date = ?"); values.push(endDate || null); }
+    if (dueMonth !== undefined) { fields.push("due_month = ?"); values.push(dueMonth ?? null); }
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
