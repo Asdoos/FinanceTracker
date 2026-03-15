@@ -1,7 +1,18 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const IncomeCreateSchema = z.object({
+  label: z.string().min(1),
+  amount: z.number().positive(),
+  type: z.enum(["monthly", "annual"]),
+  accountId: z.number().int(),
+  isActive: z.boolean().optional(),
+  note: z.string().nullable().optional(),
+});
+const IncomePatchSchema = IncomeCreateSchema.partial();
 
 // GET /api/income
 router.get("/", async (_req, res, next) => {
@@ -40,10 +51,9 @@ router.get("/", async (_req, res, next) => {
 // POST /api/income
 router.post("/", async (req, res, next) => {
   try {
-    const { label, amount, type, accountId, isActive, note } = req.body;
-    if (!label || amount == null || !type || !accountId) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+    const parsed = IncomeCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { label, amount, type, accountId, isActive, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO income_sources (label, amount, type, account_id, is_active, note)
@@ -60,7 +70,9 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { label, amount, type, accountId, isActive, note } = req.body;
+    const parsed = IncomePatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { label, amount, type, accountId, isActive, note } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ?", [id]);

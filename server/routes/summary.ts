@@ -112,6 +112,18 @@ router.get("/", async (_req, res, next) => {
 
     const totalFreibetrag = byAccount.reduce((s: number, a: any) => s + a.freibetragMonthly * 12, 0);
 
+    // ── Per-category transaction totals for current month ──
+    const { rows: catTxRows } = await db.query(
+      `SELECT category_id, SUM(amount) AS total
+       FROM transactions
+       WHERE type = 'expense' AND date LIKE ?
+       GROUP BY category_id`,
+      [`${currentMonth}-%`]
+    );
+    const catTxMap: Record<string, number> = Object.fromEntries(
+      (catTxRows as any[]).map((r: any) => [String(r.category_id ?? "null"), Number(r.total)])
+    );
+
     // ── Per category breakdown ──
     const byCategory = categories.map((cat: any) => {
       const catExp = activeExpenses.filter((e: any) => e.category_id === cat.id);
@@ -119,15 +131,18 @@ router.get("/", async (_req, res, next) => {
         (sum: number, e: any) => sum + toMonthly(e.amount, e.type), 0
       );
       const share = totalMonthlyExpenses > 0 ? (monthly / totalMonthlyExpenses) * 100 : 0;
+      const transactionMonthly = catTxMap[String(cat.id)] ?? 0;
+      const totalMonthly = monthly + transactionMonthly;
 
       return {
         category: { id: cat.id, name: cat.name, color: cat.color,
                     budget: cat.budget_limit ?? null },
         monthly,
+        transactionMonthly,
         share,
         itemCount: catExp.length,
         pctBudget: cat.budget_limit > 0
-          ? (monthly / cat.budget_limit) * 100
+          ? (totalMonthly / cat.budget_limit) * 100
           : null,
       };
     });

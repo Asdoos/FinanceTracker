@@ -1,7 +1,16 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const CategoryCreateSchema = z.object({
+  name: z.string().min(1),
+  color: z.string().min(1),
+  icon: z.string().optional(),
+  budget: z.number().nonnegative().nullable().optional(),
+});
+const CategoryPatchSchema = CategoryCreateSchema.partial();
 
 // GET /api/categories
 router.get("/", async (_req, res, next) => {
@@ -25,10 +34,9 @@ router.get("/", async (_req, res, next) => {
 // POST /api/categories
 router.post("/", async (req, res, next) => {
   try {
-    const { name, color, icon, budget } = req.body;
-    if (!name || !color) {
-      return res.status(400).json({ error: "name and color are required" });
-    }
+    const parsed = CategoryCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { name, color, icon, budget } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       "INSERT INTO categories (name, color, icon, budget_limit) VALUES (?, ?, ?, ?)",
@@ -44,7 +52,9 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, color, icon, budget } = req.body;
+    const parsed = CategoryPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { name, color, icon, budget } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM categories WHERE id = ?", [id]);

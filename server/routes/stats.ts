@@ -85,7 +85,20 @@ router.get("/", async (req, res, next) => {
     const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
     const totalExpenses = monthly.reduce((s, m) => s + m.expenses, 0);
 
-    res.json({ monthly, byCategory, totalIncome, totalExpenses, months });
+    // ── Recurring monthly baseline ───────────────────────────────────────
+    const today = new Date().toISOString().slice(0, 10);
+    const { rows: recurExp } = await db.query(
+      `SELECT amount, type FROM expense_items WHERE is_active = 1 AND (end_date IS NULL OR end_date >= ?)`,
+      [today]
+    );
+    const { rows: recurInc } = await db.query(
+      `SELECT amount, type FROM income_sources WHERE is_active = 1`
+    );
+    const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
+    const monthlyRecurringExpenses = (recurExp as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0);
+    const monthlyRecurringIncome   = (recurInc as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0);
+
+    res.json({ monthly, byCategory, totalIncome, totalExpenses, months, monthlyRecurringExpenses, monthlyRecurringIncome });
   } catch (err) {
     next(err);
   }

@@ -6,6 +6,14 @@ import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, Check, PlayCircle } from "lucide-react";
 import { Modal } from "../components/Modal";
 
+type Suggestion = {
+  label: string;
+  accountId: number;
+  type: "income" | "expense";
+  avgAmount: number;
+  count: number;
+};
+
 type Template = {
   id: number;
   label: string;
@@ -34,6 +42,7 @@ export default function Templates() {
   const { data: templates, error: templatesError, refetch } = useApi<Template[]>("/templates");
   const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
   const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
+  const { data: suggestions } = useApi<Suggestion[]>("/templates/suggestions");
 
   const [tab, setTab] = useState<"expense" | "income">("expense");
   const [showForm, setShowForm] = useState(false);
@@ -222,6 +231,34 @@ export default function Templates() {
           Einnahmen
         </button>
       </div>
+
+      {/* Suggestions */}
+      {suggestions && suggestions.filter((s) => s.type === tab).length > 0 && (
+        <div className="space-y-2">
+          {suggestions.filter((s) => s.type === tab).map((s) => (
+            <div
+              key={`${s.label}-${s.accountId}`}
+              className="flex items-center justify-between px-4 py-2.5 bg-blue-900/20 border border-blue-800/30 rounded-xl text-sm"
+            >
+              <span className="text-blue-300 min-w-0 mr-3">
+                💡 <span className="font-medium">{s.label}</span>
+                <span className="text-blue-500 ml-2">({s.count}× gebucht, Ø {eur(s.avgAmount)})</span>
+              </span>
+              <button
+                onClick={() => {
+                  setForm({ label: s.label, amount: String(s.avgAmount), accountId: String(s.accountId), categoryId: "", note: "" });
+                  setEditItem(null);
+                  setMutationError(null);
+                  setShowForm(true);
+                }}
+                className="flex-shrink-0 text-xs px-2 py-1 bg-blue-600/30 hover:bg-blue-600/50 rounded text-blue-300 transition-colors"
+              >
+                Als Vorlage übernehmen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* List */}
       {filtered.length === 0 ? (

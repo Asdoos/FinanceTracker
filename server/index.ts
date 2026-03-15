@@ -16,6 +16,7 @@ import summaryRouter from "./routes/summary";
 import transactionsRouter from "./routes/transactions";
 import statsRouter from "./routes/stats";
 import templatesRouter from "./routes/templates";
+import exportRouter from "./routes/export";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -32,6 +33,7 @@ app.use("/api/summary", summaryRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/templates", templatesRouter);
+app.use("/api/export", exportRouter);
 
 // ── Central error handler ────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

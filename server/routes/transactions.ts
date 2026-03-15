@@ -1,7 +1,21 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const TransactionCreateSchema = z.object({
+  date: z.string().min(10),
+  label: z.string().min(1),
+  amount: z.number().positive(),
+  type: z.enum(["income", "expense"]),
+  categoryId: z.number().int().nullable().optional(),
+  accountId: z.number().int(),
+  note: z.string().nullable().optional(),
+});
+const TransactionPatchSchema = TransactionCreateSchema.omit({ date: true }).partial().extend({
+  date: z.string().min(10).optional(),
+});
 
 // GET /api/transactions
 router.get("/", async (req, res, next) => {
@@ -62,10 +76,9 @@ router.get("/", async (req, res, next) => {
 // POST /api/transactions
 router.post("/", async (req, res, next) => {
   try {
-    const { date, label, amount, type, categoryId, accountId, note } = req.body;
-    if (!date || !label || amount == null || !type || !accountId) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+    const parsed = TransactionCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { date, label, amount, type, categoryId, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note)
@@ -82,7 +95,9 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { date, label, amount, type, categoryId, accountId, note } = req.body;
+    const parsed = TransactionPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { date, label, amount, type, categoryId, accountId, note } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM transactions WHERE id = ?", [id]);

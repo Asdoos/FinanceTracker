@@ -1,7 +1,18 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const TemplateCreateSchema = z.object({
+  label: z.string().min(1),
+  amount: z.number().positive(),
+  type: z.enum(["income", "expense"]),
+  categoryId: z.number().int().nullable().optional(),
+  accountId: z.number().int(),
+  note: z.string().nullable().optional(),
+});
+const TemplatePatchSchema = TemplateCreateSchema.partial();
 
 const SELECT_SQL = `
   SELECT t.id, t.label, t.amount, t.type, t.category_id, t.account_id, t.note,
@@ -26,6 +37,38 @@ function mapRow(r: any) {
   };
 }
 
+// GET /api/templates/suggestions  (must be before "/:id" routes)
+router.get("/suggestions", async (_req, res, next) => {
+  try {
+    const db = await getDb();
+    const { rows: candidates } = await db.query(
+      `SELECT lower(t.label) AS key, t.label, t.account_id, t.type,
+              ROUND(AVG(t.amount), 2) AS avg_amount, COUNT(*) AS cnt
+       FROM transactions t
+       GROUP BY lower(t.label), t.account_id, t.type
+       HAVING cnt >= 3`
+    );
+    const { rows: templates } = await db.query(
+      "SELECT lower(label) AS key, account_id, type FROM transaction_templates"
+    );
+    const tmplSet = new Set(
+      (templates as any[]).map((t: any) => `${t.key}|${t.account_id}|${t.type}`)
+    );
+    const suggestions = (candidates as any[])
+      .filter((c: any) => !tmplSet.has(`${c.key}|${c.account_id}|${c.type}`))
+      .map((c: any) => ({
+        label: c.label,
+        accountId: c.account_id,
+        type: c.type,
+        avgAmount: c.avg_amount,
+        count: c.cnt,
+      }));
+    res.json(suggestions);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/templates[?type=income|expense]
 router.get("/", async (req, res, next) => {
   try {
@@ -48,10 +91,9 @@ router.get("/", async (req, res, next) => {
 // POST /api/templates
 router.post("/", async (req, res, next) => {
   try {
-    const { label, amount, type, categoryId, accountId, note } = req.body;
-    if (!label || amount == null || !type || !accountId) {
-      return res.status(400).json({ error: "label, amount, type, accountId are required" });
-    }
+    const parsed = TemplateCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { label, amount, type, categoryId, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
@@ -72,9 +114,11 @@ router.patch("/:id", async (req, res, next) => {
     const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
     if ((rows as any[]).length === 0) return res.status(404).json({ error: "Not found" });
 
+    const patchParsed = TemplatePatchSchema.safeParse(req.body);
+    if (!patchParsed.success) return res.status(400).json({ error: patchParsed.error.flatten() });
     const fields: string[] = [];
     const values: any[] = [];
-    const { label, amount, type, categoryId, accountId, note } = req.body;
+    const { label, amount, type, categoryId, accountId, note } = patchParsed.data;
     if (label !== undefined) { fields.push("label = ?"); values.push(label); }
     if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
     if (type !== undefined) { fields.push("type = ?"); values.push(type); }

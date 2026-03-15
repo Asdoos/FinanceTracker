@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, Check, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Search, Download } from "lucide-react";
 import { Modal } from "../components/Modal";
 
 type Transaction = {
@@ -200,12 +200,21 @@ export default function Transactions() {
             </span>
           </p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
-        >
-          <Plus size={15} /> Hinzufügen
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/export/transactions"
+            download
+            className="flex items-center gap-2 px-3 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
+          >
+            <Download size={15} /> Export
+          </a>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
+          >
+            <Plus size={15} /> Hinzufügen
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

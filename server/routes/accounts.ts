@@ -1,7 +1,24 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const AccountCreateSchema = z.object({
+  name: z.string().min(1),
+  color: z.string().min(1),
+  description: z.string().optional(),
+  isDefault: z.boolean().optional(),
+  freibetrag: z.number().nullable().optional(),
+  freibetragYear: z.number().int().nullable().optional(),
+  interestRate: z.number().nullable().optional(),
+  interestRateUntil: z.string().nullable().optional(),
+  interestInterval: z.string().nullable().optional(),
+});
+const AccountPatchSchema = AccountCreateSchema.extend({
+  actualBalance: z.number().nullable().optional(),
+  actualBalanceDate: z.string().nullable().optional(),
+}).partial();
 
 // GET /api/accounts
 router.get("/", async (_req, res, next) => {
@@ -32,10 +49,9 @@ router.get("/", async (_req, res, next) => {
 // POST /api/accounts
 router.post("/", async (req, res, next) => {
   try {
-    const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = req.body;
-    if (!name || !color) {
-      return res.status(400).json({ error: "name and color are required" });
-    }
+    const parsed = AccountCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -51,7 +67,9 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate, interestInterval } = req.body;
+    const parsed = AccountPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate, interestInterval } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM accounts WHERE id = ?", [id]);

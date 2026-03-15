@@ -1,7 +1,20 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getDb } from "../db";
 
 const router = Router();
+
+const ExpenseCreateSchema = z.object({
+  label: z.string().min(1),
+  amount: z.number().positive(),
+  type: z.enum(["monthly", "annual"]),
+  categoryId: z.number().int().nullable().optional(),
+  accountId: z.number().int(),
+  isActive: z.boolean().optional(),
+  note: z.string().nullable().optional(),
+  endDate: z.string().nullable().optional(),
+});
+const ExpensePatchSchema = ExpenseCreateSchema.partial();
 
 // GET /api/expenses
 router.get("/", async (_req, res, next) => {
@@ -61,10 +74,9 @@ router.get("/", async (_req, res, next) => {
 // POST /api/expenses
 router.post("/", async (req, res, next) => {
   try {
-    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = req.body;
-    if (!label || amount == null || !type || !categoryId || !accountId) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+    const parsed = ExpenseCreateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = parsed.data;
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date)
@@ -81,7 +93,9 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = req.body;
+    const parsed = ExpensePatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { label, amount, type, categoryId, accountId, isActive, note, endDate } = parsed.data;
 
     const db = await getDb();
     const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ?", [id]);

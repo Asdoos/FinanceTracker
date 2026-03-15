@@ -39,6 +39,8 @@ interface Stats {
   totalIncome: number;
   totalExpenses: number;
   months: number;
+  monthlyRecurringExpenses?: number;
+  monthlyRecurringIncome?: number;
 }
 
 const RANGES: { label: string; value: 3 | 6 | 12 | 0 }[] = [
@@ -184,6 +186,22 @@ export default function Statistics() {
                 />
                 <Bar dataKey="income" name="income" fill="#22c55e" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="expenses" name="expenses" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                {stats.monthlyRecurringExpenses != null && stats.monthlyRecurringExpenses > 0 && (
+                  <ReferenceLine
+                    y={stats.monthlyRecurringExpenses}
+                    stroke="#ef444488"
+                    strokeDasharray="4 4"
+                    label={{ value: "Fix-Ausgaben", position: "insideTopRight", fontSize: 10, fill: "#9ca3af" }}
+                  />
+                )}
+                {stats.monthlyRecurringIncome != null && stats.monthlyRecurringIncome > 0 && (
+                  <ReferenceLine
+                    y={stats.monthlyRecurringIncome}
+                    stroke="#22c55e88"
+                    strokeDasharray="4 4"
+                    label={{ value: "Fix-Einnahmen", position: "insideBottomRight", fontSize: 10, fill: "#9ca3af" }}
+                  />
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>

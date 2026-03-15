@@ -39,6 +39,7 @@ type Summary = {
   byCategory: {
     category: { id: number; name: string; color: string; budget?: number | null };
     monthly: number;
+    transactionMonthly: number;
     share: number;
     itemCount: number;
     pctBudget: number | null;
@@ -447,9 +448,11 @@ export default function Dashboard() {
           </thead>
           <tbody>
             {[...summary.byCategory]
-              .filter((c) => c.monthly > 0)
-              .sort((a, b) => b.monthly - a.monthly)
-              .map(({ category, monthly, share, pctBudget }) => (
+              .filter((c) => c.monthly > 0 || c.transactionMonthly > 0)
+              .sort((a, b) => (b.monthly + b.transactionMonthly) - (a.monthly + a.transactionMonthly))
+              .map(({ category, monthly, transactionMonthly, share, pctBudget }) => {
+                const totalMonthly = monthly + transactionMonthly;
+                return (
                 <tr
                   key={category.id}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30"
@@ -461,9 +464,14 @@ export default function Dashboard() {
                     />
                     {category.name}
                   </td>
-                  <td className="px-4 py-3 text-right">{eur(monthly)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <div>{eur(totalMonthly)}</div>
+                    {transactionMonthly > 0 && (
+                      <div className="text-xs text-gray-500">Fix: {eur(monthly)} + Einmalig: {eur(transactionMonthly)}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right text-gray-400">
-                    {eur(monthly * 12)}
+                    {eur(totalMonthly * 12)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -489,7 +497,7 @@ export default function Dashboard() {
                       return (
                         <div className="flex flex-col items-end gap-1">
                           <span className={`text-xs ${valColor}`}>
-                            {eur(monthly)} / {eur(category.budget!)}
+                            {eur(totalMonthly)} / {eur(category.budget!)}
                           </span>
                           <div className="w-24 bg-gray-800 rounded-full h-1.5">
                             <div
@@ -502,7 +510,8 @@ export default function Dashboard() {
                     })() : <span className="text-gray-600 text-xs">–</span>}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
           </tbody>
         </table>
         </div>
