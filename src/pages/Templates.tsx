@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
@@ -19,47 +19,76 @@ type Template = {
 type Account = { id: number; name: string; color: string };
 type Category = { id: number; name: string; color: string };
 
-const today = new Date().toISOString().slice(0, 10);
+const INITIAL_FORM = {
+  label: "",
+  amount: "",
+  categoryId: "",
+  accountId: "",
+  note: "",
+};
 
 export default function Templates() {
   const navigate = useNavigate();
-  const { data: templates, refetch } = useApi<Template[]>("/templates");
-  const { data: accounts } = useApi<Account[]>("/accounts");
-  const { data: categories } = useApi<Category[]>("/categories");
+  const { data: templates, error: templatesError, refetch } = useApi<Template[]>("/templates");
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
 
   const [tab, setTab] = useState<"expense" | "income">("expense");
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<Template | null>(null);
   const [bookItem, setBookItem] = useState<Template | null>(null);
-  const [bookDate, setBookDate] = useState(today);
+  const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingBook, setIsSubmittingBook] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [bookError, setBookError] = useState<string | null>(null);
+  const [form, setForm] = useState(INITIAL_FORM);
 
-  const [form, setForm] = useState({
-    label: "",
-    amount: "",
-    categoryId: "",
-    accountId: "",
-    note: "",
-  });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (bookItem) {
+          setBookItem(null);
+          setBookError(null);
+        } else if (showForm) {
+          closeFormModal();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [bookItem, showForm]);
 
   const filtered = useMemo(
     () => (templates ?? []).filter((t) => t.type === tab),
     [templates, tab]
   );
 
+  const fetchError = templatesError || accountsError || categoriesError;
+  if (fetchError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {fetchError}
+      </div>
+    );
+  }
+
   if (!templates || !accounts || !categories) {
     return <div className="flex items-center justify-center h-full text-gray-500">Lade...</div>;
   }
 
   // ── Vorlage-Modal ──────────────────────────────────────────────────────
-  function openAdd() {
-    setForm({
-      label: "",
-      amount: "",
-      categoryId: "",
-      accountId: String(accounts![0]?.id ?? ""),
-      note: "",
-    });
+  function closeFormModal() {
+    setShowForm(false);
     setEditItem(null);
+    setForm(INITIAL_FORM);
+    setMutationError(null);
+  }
+
+  function openAdd() {
+    setForm({ ...INITIAL_FORM, accountId: String(accounts![0]?.id ?? "") });
+    setEditItem(null);
+    setMutationError(null);
     setShowForm(true);
   }
 
@@ -72,53 +101,75 @@ export default function Templates() {
       note: item.note ?? "",
     });
     setEditItem(item);
+    setMutationError(null);
     setShowForm(true);
   }
 
   async function handleSubmit() {
     if (!form.label || !form.amount || !form.accountId) return;
-    const payload = {
-      label: form.label,
-      amount: parseFloat(form.amount),
-      type: tab,
-      categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
-      accountId: parseInt(form.accountId),
-      note: form.note || undefined,
-    };
-    if (editItem) {
-      await api.patch(`/templates/${editItem.id}`, payload);
-    } else {
-      await api.post("/templates", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        label: form.label,
+        amount: parseFloat(form.amount),
+        type: tab,
+        categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
+        accountId: parseInt(form.accountId),
+        note: form.note || undefined,
+      };
+      if (editItem) {
+        await api.patch(`/templates/${editItem.id}`, payload);
+      } else {
+        await api.post("/templates", payload);
+      }
+      closeFormModal();
+      refetch();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowForm(false);
-    refetch();
   }
 
   async function handleDelete(id: number) {
     if (!window.confirm("Diese Vorlage wirklich löschen?")) return;
-    await api.delete(`/templates/${id}`);
-    refetch();
+    try {
+      await api.delete(`/templates/${id}`);
+      refetch();
+    } catch (err: any) {
+      alert(err.message);
+    }
   }
 
   // ── Buchen-Modal ───────────────────────────────────────────────────────
   function openBook(item: Template) {
-    setBookDate(today);
+    setBookDate(new Date().toISOString().slice(0, 10));
     setBookItem(item);
+    setBookError(null);
   }
 
   async function handleBook() {
     if (!bookItem) return;
-    await api.post("/transactions", {
-      date: bookDate,
-      label: bookItem.label,
-      amount: bookItem.amount,
-      type: bookItem.type,
-      categoryId: bookItem.categoryId ?? undefined,
-      accountId: bookItem.accountId,
-      note: bookItem.note ?? undefined,
-    });
-    setBookItem(null);
-    navigate("/transactions");
+    setIsSubmittingBook(true);
+    setBookError(null);
+    try {
+      await api.post("/transactions", {
+        date: bookDate,
+        label: bookItem.label,
+        amount: bookItem.amount,
+        type: bookItem.type,
+        categoryId: bookItem.categoryId ?? undefined,
+        accountId: bookItem.accountId,
+        note: bookItem.note ?? undefined,
+      });
+      setBookItem(null);
+      navigate("/transactions");
+    } catch (err) {
+      setBookError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmittingBook(false);
+    }
   }
 
   const tabClass = (t: "expense" | "income") =>
@@ -204,7 +255,7 @@ export default function Templates() {
               <div className="flex items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => openBook(item)}
-                  title="Buchen"
+                  aria-label="Vorlage buchen"
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 rounded-lg text-blue-400 text-xs font-medium transition-colors"
                 >
                   <PlayCircle size={13} />
@@ -212,12 +263,14 @@ export default function Templates() {
                 </button>
                 <button
                   onClick={() => openEdit(item)}
+                  aria-label="Bearbeiten"
                   className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                 >
                   <Pencil size={13} />
                 </button>
                 <button
                   onClick={() => handleDelete(item.id)}
+                  aria-label="Löschen"
                   className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                 >
                   <Trash2 size={13} />
@@ -240,7 +293,11 @@ export default function Templates() {
                   ? "Ausgabe-Vorlage erstellen"
                   : "Einnahme-Vorlage erstellen"}
               </h3>
-              <button onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-800 rounded">
+              <button
+                onClick={closeFormModal}
+                aria-label="Schließen"
+                className="p-1 hover:bg-gray-800 rounded"
+              >
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -252,6 +309,7 @@ export default function Templates() {
                 onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
                 className="input"
                 placeholder={tab === "expense" ? "z.B. Tanken" : "z.B. Bonus"}
+                autoFocus
               />
             </div>
 
@@ -304,19 +362,24 @@ export default function Templates() {
               />
             </div>
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowForm(false)}
+                onClick={closeFormModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editItem ? "Speichern" : "Erstellen"}
+                {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Erstellen"}
               </button>
             </div>
           </div>
@@ -331,7 +394,11 @@ export default function Templates() {
               <h3 className="text-lg font-semibold text-white">
                 „{bookItem.label}" buchen
               </h3>
-              <button onClick={() => setBookItem(null)} className="p-1 hover:bg-gray-800 rounded">
+              <button
+                onClick={() => { setBookItem(null); setBookError(null); }}
+                aria-label="Schließen"
+                className="p-1 hover:bg-gray-800 rounded"
+              >
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -353,19 +420,24 @@ export default function Templates() {
               />
             </div>
 
+            {bookError && (
+              <p className="text-red-400 text-sm">{bookError}</p>
+            )}
+
             <div className="flex gap-3 pt-1">
               <button
-                onClick={() => setBookItem(null)}
+                onClick={() => { setBookItem(null); setBookError(null); }}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleBook}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmittingBook}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlayCircle size={15} />
-                Buchen
+                {isSubmittingBook ? "Buchen..." : "Buchen"}
               </button>
             </div>
           </div>

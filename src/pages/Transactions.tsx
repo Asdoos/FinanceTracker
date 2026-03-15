@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check, Search } from "lucide-react";
@@ -25,10 +25,21 @@ function formatMonth(ym: string) {
   return d.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
 }
 
+const todayStr = new Date().toISOString().slice(0, 10);
+
+const INITIAL_FORM = {
+  date: todayStr,
+  label: "",
+  amount: "",
+  categoryId: "",
+  accountId: "",
+  note: "",
+};
+
 export default function Transactions() {
-  const { data: transactions, refetch } = useApi<Transaction[]>("/transactions");
-  const { data: accounts } = useApi<Account[]>("/accounts");
-  const { data: categories } = useApi<Category[]>("/categories");
+  const { data: transactions, error: transactionsError, refetch } = useApi<Transaction[]>("/transactions");
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
 
   const [tab, setTab] = useState<"expense" | "income">("expense");
   const [search, setSearch] = useState("");
@@ -36,17 +47,18 @@ export default function Transactions() {
   const [filterCategory, setFilterCategory] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<Transaction | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState(INITIAL_FORM);
 
-  const [form, setForm] = useState({
-    date: today,
-    label: "",
-    amount: "",
-    categoryId: "",
-    accountId: "",
-    note: "",
-  });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const filtered = useMemo(() => {
     if (!transactions) return [];
@@ -77,15 +89,31 @@ export default function Transactions() {
 
   const total = filtered.reduce((s, t) => s + t.amount, 0);
 
+  const fetchError = transactionsError ?? accountsError ?? categoriesError;
+  if (fetchError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {fetchError}
+      </div>
+    );
+  }
+
   if (!transactions || !accounts || !categories) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">Lade...</div>
     );
   }
 
+  function closeModal() {
+    setShowAdd(false);
+    setEditItem(null);
+    setForm({ ...INITIAL_FORM, date: new Date().toISOString().slice(0, 10) });
+    setMutationError(null);
+  }
+
   function openAdd() {
     setForm({
-      date: today,
+      date: new Date().toISOString().slice(0, 10),
       label: "",
       amount: "",
       categoryId: "",
@@ -93,6 +121,7 @@ export default function Transactions() {
       note: "",
     });
     setEditItem(null);
+    setMutationError(null);
     setShowAdd(true);
   }
 
@@ -106,27 +135,36 @@ export default function Transactions() {
       note: item.note ?? "",
     });
     setEditItem(item);
+    setMutationError(null);
     setShowAdd(true);
   }
 
   async function handleSubmit() {
     if (!form.label || !form.amount || !form.date || !form.accountId) return;
-    const payload = {
-      date: form.date,
-      label: form.label,
-      amount: parseFloat(form.amount),
-      type: tab,
-      categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
-      accountId: parseInt(form.accountId),
-      note: form.note || undefined,
-    };
-    if (editItem) {
-      await api.patch(`/transactions/${editItem.id}`, payload);
-    } else {
-      await api.post("/transactions", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        date: form.date,
+        label: form.label,
+        amount: parseFloat(form.amount),
+        type: tab,
+        categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
+        accountId: parseInt(form.accountId),
+        note: form.note || undefined,
+      };
+      if (editItem) {
+        await api.patch(`/transactions/${editItem.id}`, payload);
+      } else {
+        await api.post("/transactions", payload);
+      }
+      closeModal();
+      refetch();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowAdd(false);
-    refetch();
   }
 
   async function handleDelete(id: number) {
@@ -267,12 +305,14 @@ export default function Transactions() {
                       <div className="flex gap-1">
                         <button
                           onClick={() => openEdit(item)}
+                          aria-label="Bearbeiten"
                           className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                         >
                           <Pencil size={13} />
                         </button>
                         <button
                           onClick={() => handleDelete(item.id)}
+                          aria-label="Löschen"
                           className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                         >
                           <Trash2 size={13} />
@@ -342,12 +382,14 @@ export default function Transactions() {
                         <div className="flex items-center gap-1 justify-end">
                           <button
                             onClick={() => openEdit(item)}
+                            aria-label="Bearbeiten"
                             className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                           >
                             <Pencil size={13} />
                           </button>
                           <button
                             onClick={() => handleDelete(item.id)}
+                            aria-label="Löschen"
                             className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                           >
                             <Trash2 size={13} />
@@ -373,7 +415,11 @@ export default function Transactions() {
                   ? tab === "expense" ? "Ausgabe bearbeiten" : "Einnahme bearbeiten"
                   : tab === "expense" ? "Ausgabe hinzufügen" : "Einnahme hinzufügen"}
               </h3>
-              <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-800 rounded">
+              <button
+                onClick={closeModal}
+                aria-label="Schließen"
+                className="p-1 hover:bg-gray-800 rounded"
+              >
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -447,19 +493,24 @@ export default function Transactions() {
               />
             </div>
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowAdd(false)}
+                onClick={closeModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editItem ? "Speichern" : "Hinzufügen"}
+                {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

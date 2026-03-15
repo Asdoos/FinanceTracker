@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
@@ -128,27 +128,55 @@ const PRESET_COLORS = [
 
 const FREIBETRAG_LIMIT = 1000;
 
+const INITIAL_FORM = {
+  name: "",
+  color: "#3b82f6",
+  description: "",
+  freibetrag: "",
+  freibetragYear: "",
+  interestRate: "",
+  interestRateUntil: "",
+  interestInterval: "",
+};
+
 export default function Accounts() {
-  const { data: accounts, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
-  const { data: summary, refetch: refetchSummary } = useApi<Summary>("/summary");
+  const { data: accounts, error: accountsError, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
+  const { data: summary, error: summaryError, refetch: refetchSummary } = useApi<Summary>("/summary");
 
   const today = new Date().toISOString().slice(0, 10);
 
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    color: "#3b82f6",
-    description: "",
-    freibetrag: "",
-    freibetragYear: "",
-    interestRate: "",
-    interestRateUntil: "",
-    interestInterval: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   const [balanceModal, setBalanceModal] = useState<Account | null>(null);
   const [balanceForm, setBalanceForm] = useState({ balance: "", date: today });
+  const [isSubmittingBalance, setIsSubmittingBalance] = useState(false);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (balanceModal) {
+          setBalanceModal(null);
+        } else {
+          closeAccountModal();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [balanceModal]);
+
+  const fetchError = accountsError ?? summaryError;
+  if (fetchError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {fetchError}
+      </div>
+    );
+  }
 
   if (!accounts || !summary) {
     return (
@@ -164,9 +192,17 @@ export default function Accounts() {
 
   const currentYear = new Date().getFullYear();
 
-  function openAdd() {
-    setForm({ name: "", color: "#3b82f6", description: "", freibetrag: "", freibetragYear: "", interestRate: "", interestRateUntil: "", interestInterval: "" });
+  function closeAccountModal() {
+    setShowAdd(false);
     setEditId(null);
+    setForm(INITIAL_FORM);
+    setMutationError(null);
+  }
+
+  function openAdd() {
+    setForm(INITIAL_FORM);
+    setEditId(null);
+    setMutationError(null);
     setShowAdd(true);
   }
 
@@ -182,29 +218,38 @@ export default function Accounts() {
       interestInterval: a.interestInterval ?? "",
     });
     setEditId(a.id);
+    setMutationError(null);
     setShowAdd(true);
   }
 
   async function handleSubmit() {
     if (!form.name) return;
-    const payload = {
-      name: form.name,
-      color: form.color,
-      description: form.description || undefined,
-      freibetrag: form.freibetrag ? parseFloat(form.freibetrag) : null,
-      freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
-      interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
-      interestRateUntil: form.interestRateUntil || null,
-      interestInterval: form.interestInterval || null,
-    };
-    if (editId) {
-      await api.patch(`/accounts/${editId}`, payload);
-    } else {
-      await api.post("/accounts", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        name: form.name,
+        color: form.color,
+        description: form.description || undefined,
+        freibetrag: form.freibetrag ? parseFloat(form.freibetrag) : null,
+        freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
+        interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
+        interestRateUntil: form.interestRateUntil || null,
+        interestInterval: form.interestInterval || null,
+      };
+      if (editId) {
+        await api.patch(`/accounts/${editId}`, payload);
+      } else {
+        await api.post("/accounts", payload);
+      }
+      closeAccountModal();
+      refetchAccounts();
+      refetchSummary();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowAdd(false);
-    refetchAccounts();
-    refetchSummary();
   }
 
   async function handleDelete(id: number) {
@@ -229,13 +274,18 @@ export default function Accounts() {
 
   async function handleSetBalance() {
     if (!balanceModal || !balanceForm.balance) return;
-    await api.patch(`/accounts/${balanceModal.id}`, {
-      actualBalance: parseFloat(balanceForm.balance),
-      actualBalanceDate: balanceForm.date || today,
-    });
-    setBalanceModal(null);
-    refetchAccounts();
-    refetchSummary();
+    setIsSubmittingBalance(true);
+    try {
+      await api.patch(`/accounts/${balanceModal.id}`, {
+        actualBalance: parseFloat(balanceForm.balance),
+        actualBalanceDate: balanceForm.date || today,
+      });
+      setBalanceModal(null);
+      refetchAccounts();
+      refetchSummary();
+    } finally {
+      setIsSubmittingBalance(false);
+    }
   }
 
   return (
@@ -302,7 +352,6 @@ export default function Accounts() {
                       </>
                     )}
                     {account.interestRate != null && account.interestRate > 0 && (() => {
-                      const today = new Date().toISOString().slice(0, 10);
                       const until = account.interestRateUntil;
                       const expired  = !!until && until < today;
                       const expiring = !expired && !!until &&
@@ -331,12 +380,14 @@ export default function Accounts() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => openEdit(account)}
+                    aria-label="Bearbeiten"
                     className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                   >
                     <Pencil size={14} />
                   </button>
                   <button
                     onClick={() => handleDelete(account.id)}
+                    aria-label="Löschen"
                     className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                   >
                     <Trash2 size={14} />
@@ -372,9 +423,8 @@ export default function Accounts() {
 
                   {/* Interest calculation section */}
                   {account.interestRate != null && account.interestRate > 0 && (() => {
-                    const today2 = new Date().toISOString().slice(0, 10);
                     const until = account.interestRateUntil;
-                    if (until && until < today2) return null; // abgelaufen
+                    if (until && until < today) return null; // abgelaufen
 
                     const baseBalance = s.calculatedBalance ?? s.actualBalance;
                     const fbEffektiv = (account.freibetrag ?? 0) > 0 &&
@@ -533,7 +583,11 @@ export default function Accounts() {
           <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-xs mx-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-white">Kontostand erfassen</h3>
-              <button onClick={() => setBalanceModal(null)} className="p-1 hover:bg-gray-800 rounded">
+              <button
+                onClick={() => setBalanceModal(null)}
+                aria-label="Schließen"
+                className="p-1 hover:bg-gray-800 rounded"
+              >
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -575,9 +629,10 @@ export default function Accounts() {
               </button>
               <button
                 onClick={handleSetBalance}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmittingBalance}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Check size={15} /> Speichern
+                <Check size={15} /> {isSubmittingBalance ? "Speichern..." : "Speichern"}
               </button>
             </div>
           </div>
@@ -591,7 +646,11 @@ export default function Accounts() {
               <h3 className="text-lg font-semibold text-white">
                 {editId ? "Konto bearbeiten" : "Konto hinzufügen"}
               </h3>
-              <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-800 rounded">
+              <button
+                onClick={closeAccountModal}
+                aria-label="Schließen"
+                className="p-1 hover:bg-gray-800 rounded"
+              >
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -699,19 +758,24 @@ export default function Accounts() {
               </select>
             </div>
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowAdd(false)}
+                onClick={closeAccountModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editId ? "Speichern" : "Hinzufügen"}
+                {isSubmitting ? "Speichern..." : editId ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

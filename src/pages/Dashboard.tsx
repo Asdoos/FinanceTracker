@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock } from "lucide-react";
+import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight } from "lucide-react";
 
 const FREIBETRAG_LIMIT = 1000;
 
@@ -48,11 +48,21 @@ type Summary = {
     label: string;
     monthlyAmount: number;
     shareOfTotal: number;
+    end_date?: string | null;
   }[];
+};
+
+type Account = {
+  id: number;
+  name: string;
+  color: string;
+  interest_rate?: number | null;
+  interest_rate_until?: string | null;
 };
 
 export default function Dashboard() {
   const { data: summary, loading } = useApi<Summary>("/summary");
+  const { data: accounts } = useApi<Account[]>("/accounts");
 
   if (loading || !summary) {
     return (
@@ -197,6 +207,77 @@ export default function Dashboard() {
               })}
             </div>
           </div>
+        );
+      })()}
+
+      {/* Alert: ablaufende Ausgaben-Enddaten */}
+      {(() => {
+        const today = new Date();
+        const in30Days = new Date(today);
+        in30Days.setDate(today.getDate() + 30);
+
+        const expiringSoon = (summary.expenses ?? []).filter((e) => {
+          if (!e.end_date) return false;
+          const d = new Date(e.end_date);
+          return d >= today && d <= in30Days;
+        });
+
+        if (expiringSoon.length === 0) return null;
+
+        return (
+          <Link to="/expenses" className="block bg-gray-900 border border-yellow-600/40 rounded-xl p-4 hover:border-yellow-500/60 transition-colors">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-yellow-400" />
+              <span className="text-sm text-gray-400">
+                {expiringSoon.length === 1
+                  ? `1 Position läuft in den nächsten 30 Tagen aus`
+                  : `${expiringSoon.length} Positionen laufen in den nächsten 30 Tagen aus`}
+              </span>
+              <ChevronRight size={14} className="ml-auto text-gray-600" />
+            </div>
+          </Link>
+        );
+      })()}
+
+      {/* Alert: ablaufende Zinssätze */}
+      {(() => {
+        if (!accounts) return null;
+        const today = new Date();
+        const in60Days = new Date(today);
+        in60Days.setDate(today.getDate() + 60);
+
+        const expiringRates = accounts.filter((a) => {
+          if (!a.interest_rate || !a.interest_rate_until) return false;
+          const d = new Date(a.interest_rate_until);
+          return d >= today && d <= in60Days;
+        });
+        const expiredRates = accounts.filter((a) => {
+          if (!a.interest_rate || !a.interest_rate_until) return false;
+          return new Date(a.interest_rate_until) < today;
+        });
+        const relevant = [...expiredRates, ...expiringRates];
+        if (relevant.length === 0) return null;
+
+        return (
+          <Link to="/accounts" className="block bg-gray-900 border border-red-600/40 rounded-xl p-4 space-y-1 hover:border-red-500/60 transition-colors">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-red-400" />
+              <span className="text-sm font-medium text-gray-300">Zinssatz läuft aus</span>
+              <ChevronRight size={14} className="ml-auto text-gray-600" />
+            </div>
+            {relevant.map((a) => {
+              const expired = new Date(a.interest_rate_until!) < today;
+              return (
+                <div key={a.id} className="flex items-center gap-2 text-sm pl-5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: a.color }} />
+                  <span className="text-gray-400">{a.name}</span>
+                  <span className={`ml-auto text-xs ${expired ? "text-red-400" : "text-yellow-400"}`}>
+                    {expired ? "abgelaufen" : new Date(a.interest_rate_until!).toLocaleDateString("de-DE")}
+                  </span>
+                </div>
+              );
+            })}
+          </Link>
         );
       })()}
 

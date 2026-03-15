@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { eur } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check, Search } from "lucide-react";
@@ -17,9 +17,18 @@ type IncomeItem = {
 
 type Account = { id: number; name: string; color: string };
 
+const INITIAL_FORM = {
+  label: "",
+  amount: "",
+  type: "monthly" as "monthly" | "annual",
+  accountId: "",
+  isActive: true,
+  note: "",
+};
+
 export default function Income() {
-  const { data: incomes, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income");
-  const { data: accounts } = useApi<Account[]>("/accounts");
+  const { data: incomes, error: incomesError, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income");
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
 
   const [search, setSearch] = useState("");
   const [filterAccount, setFilterAccount] = useState("all");
@@ -27,15 +36,18 @@ export default function Income() {
   const [sortBy, setSortBy] = useState<"amount" | "label" | "type">("amount");
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<IncomeItem | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    label: "",
-    amount: "",
-    type: "monthly" as "monthly" | "annual",
-    accountId: "",
-    isActive: true,
-    note: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const filtered = useMemo(() => {
     if (!incomes) return [];
@@ -58,6 +70,15 @@ export default function Income() {
       });
   }, [incomes, search, filterAccount, filterActive, sortBy]);
 
+  const fetchError = incomesError ?? accountsError;
+  if (fetchError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {fetchError}
+      </div>
+    );
+  }
+
   if (!incomes || !accounts) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -70,16 +91,20 @@ export default function Income() {
     .filter((i) => i.isActive)
     .reduce((s, i) => s + i.monthlyAmount, 0);
 
+  function closeModal() {
+    setShowAdd(false);
+    setEditItem(null);
+    setForm(INITIAL_FORM);
+    setMutationError(null);
+  }
+
   function openAdd() {
     setForm({
-      label: "",
-      amount: "",
-      type: "monthly",
+      ...INITIAL_FORM,
       accountId: String(accounts![0]?.id ?? ""),
-      isActive: true,
-      note: "",
     });
     setEditItem(null);
+    setMutationError(null);
     setShowAdd(true);
   }
 
@@ -93,26 +118,35 @@ export default function Income() {
       note: item.note ?? "",
     });
     setEditItem(item);
+    setMutationError(null);
     setShowAdd(true);
   }
 
   async function handleSubmit() {
     if (!form.label || !form.amount || !form.accountId) return;
-    const payload = {
-      label: form.label,
-      amount: parseFloat(form.amount),
-      type: form.type,
-      accountId: parseInt(form.accountId),
-      isActive: form.isActive,
-      note: form.note || undefined,
-    };
-    if (editItem) {
-      await api.patch(`/income/${editItem.id}`, payload);
-    } else {
-      await api.post("/income", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        label: form.label,
+        amount: parseFloat(form.amount),
+        type: form.type,
+        accountId: parseInt(form.accountId),
+        isActive: form.isActive,
+        note: form.note || undefined,
+      };
+      if (editItem) {
+        await api.patch(`/income/${editItem.id}`, payload);
+      } else {
+        await api.post("/income", payload);
+      }
+      closeModal();
+      refetchIncomes();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowAdd(false);
-    refetchIncomes();
   }
 
   async function handleDelete(id: number) {
@@ -223,12 +257,14 @@ export default function Income() {
                 <div className="flex gap-1 mt-1">
                   <button
                     onClick={() => openEdit(item)}
+                    aria-label="Bearbeiten"
                     className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                   >
                     <Pencil size={13} />
                   </button>
                   <button
                     onClick={() => handleDelete(item.id)}
+                    aria-label="Löschen"
                     className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                   >
                     <Trash2 size={13} />
@@ -291,12 +327,14 @@ export default function Income() {
                     <div className="flex items-center gap-1 justify-end">
                       <button
                         onClick={() => openEdit(item)}
+                        aria-label="Bearbeiten"
                         className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                       >
                         <Pencil size={13} />
                       </button>
                       <button
                         onClick={() => handleDelete(item.id)}
+                        aria-label="Löschen"
                         className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                       >
                         <Trash2 size={13} />
@@ -316,7 +354,7 @@ export default function Income() {
               <h3 className="text-lg font-semibold text-white">
                 {editItem ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}
               </h3>
-              <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-800 rounded">
+              <button onClick={closeModal} aria-label="Schließen" className="p-1 hover:bg-gray-800 rounded">
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
@@ -394,19 +432,24 @@ export default function Income() {
               </div>
             )}
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowAdd(false)}
+                onClick={closeModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editItem ? "Speichern" : "Hinzufügen"}
+                {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

@@ -66,7 +66,7 @@ const tooltipStyle = {
 
 export default function Statistics() {
   const [range, setRange] = useState<3 | 6 | 12 | 0>(6);
-  const { data: stats, loading } = useApi<Stats>(`/stats?months=${range}`);
+  const { data: stats, loading, error } = useApi<Stats>(`/stats?months=${range}`);
 
   const isEmpty = !loading && stats && stats.monthly.length === 0;
 
@@ -95,6 +95,13 @@ export default function Statistics() {
       {/* Loading */}
       {loading && (
         <div className="text-gray-500 text-sm">Lade Daten…</div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="p-4 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl text-sm">
+          Fehler beim Laden: {error}
+        </div>
       )}
 
       {/* Empty state */}

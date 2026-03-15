@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 
@@ -15,12 +15,32 @@ const PRESET_COLORS = [
   "#ef4444", "#06b6d4", "#ec4899", "#84cc16",
 ];
 
+const INITIAL_FORM = { name: "", color: "#3b82f6", icon: "", budget: "" };
+
 export default function Categories() {
-  const { data: categories, refetch } = useApi<Category[]>("/categories");
+  const { data: categories, error: categoriesError, refetch } = useApi<Category[]>("/categories");
 
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ name: "", color: "#3b82f6", icon: "", budget: "" });
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  if (categoriesError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {categoriesError}
+      </div>
+    );
+  }
 
   if (!categories) {
     return (
@@ -30,9 +50,17 @@ export default function Categories() {
     );
   }
 
-  function openAdd() {
-    setForm({ name: "", color: "#3b82f6", icon: "", budget: "" });
+  function closeModal() {
+    setShowModal(false);
     setEditId(null);
+    setForm(INITIAL_FORM);
+    setMutationError(null);
+  }
+
+  function openAdd() {
+    setForm(INITIAL_FORM);
+    setEditId(null);
+    setMutationError(null);
     setShowModal(true);
   }
 
@@ -40,24 +68,33 @@ export default function Categories() {
     setForm({ name: cat.name, color: cat.color, icon: cat.icon ?? "",
               budget: cat.budget != null ? String(cat.budget) : "" });
     setEditId(cat.id);
+    setMutationError(null);
     setShowModal(true);
   }
 
   async function handleSubmit() {
     if (!form.name.trim()) return;
-    const payload = {
-      name: form.name.trim(),
-      color: form.color,
-      icon: form.icon.trim() || undefined,
-      budget: form.budget ? parseFloat(form.budget) : null,
-    };
-    if (editId) {
-      await api.patch(`/categories/${editId}`, payload);
-    } else {
-      await api.post("/categories", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        color: form.color,
+        icon: form.icon.trim() || undefined,
+        budget: form.budget ? parseFloat(form.budget) : null,
+      };
+      if (editId) {
+        await api.patch(`/categories/${editId}`, payload);
+      } else {
+        await api.post("/categories", payload);
+      }
+      closeModal();
+      refetch();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowModal(false);
-    refetch();
   }
 
   async function handleDelete(id: number) {
@@ -121,12 +158,14 @@ export default function Categories() {
               <div className="flex gap-1">
                 <button
                   onClick={() => openEdit(cat)}
+                  aria-label="Bearbeiten"
                   className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                 >
                   <Pencil size={14} />
                 </button>
                 <button
                   onClick={() => handleDelete(cat.id)}
+                  aria-label="Löschen"
                   className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                 >
                   <Trash2 size={14} />
@@ -145,7 +184,8 @@ export default function Categories() {
                 {editId ? "Kategorie bearbeiten" : "Kategorie hinzufügen"}
               </h3>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
+                aria-label="Schließen"
                 className="p-1 hover:bg-gray-800 rounded"
               >
                 <X size={18} className="text-gray-400" />
@@ -208,19 +248,24 @@ export default function Categories() {
               />
             </div>
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editId ? "Speichern" : "Hinzufügen"}
+                {isSubmitting ? "Speichern..." : editId ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>

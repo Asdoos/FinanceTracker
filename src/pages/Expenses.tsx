@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { eur, pct } from "../lib/format";
 import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight, Search } from "lucide-react";
@@ -22,10 +22,21 @@ type ExpenseItem = {
 type Account = { id: number; name: string; color: string };
 type Category = { id: number; name: string; color: string };
 
+const INITIAL_FORM = {
+  label: "",
+  amount: "",
+  type: "monthly" as "monthly" | "annual",
+  categoryId: "",
+  accountId: "",
+  isActive: true,
+  note: "",
+  endDate: "",
+};
+
 export default function Expenses() {
-  const { data: expenses, refetch: refetchExpenses } = useApi<ExpenseItem[]>("/expenses");
-  const { data: accounts } = useApi<Account[]>("/accounts");
-  const { data: categories } = useApi<Category[]>("/categories");
+  const { data: expenses, error: expensesError, refetch: refetchExpenses } = useApi<ExpenseItem[]>("/expenses");
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
 
   const [filterAccount, setFilterAccount] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -35,17 +46,18 @@ export default function Expenses() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState<ExpenseItem | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    label: "",
-    amount: "",
-    type: "monthly" as "monthly" | "annual",
-    categoryId: "",
-    accountId: "",
-    isActive: true,
-    note: "",
-    endDate: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Group by category — computed before early return to avoid hooks-after-conditional-return
   const grouped = useMemo(() => {
@@ -90,12 +102,28 @@ export default function Expenses() {
 
   const totalFiltered = grouped.reduce((s, g) => s + g.total, 0);
 
+  const fetchError = expensesError ?? accountsError ?? categoriesError;
+  if (fetchError) {
+    return (
+      <div className="p-6 m-6 text-red-400 bg-red-900/20 border border-red-800/40 rounded-xl">
+        Fehler beim Laden: {fetchError}
+      </div>
+    );
+  }
+
   if (!expenses || !accounts || !categories) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         Lade...
       </div>
     );
+  }
+
+  function closeModal() {
+    setShowAdd(false);
+    setEditItem(null);
+    setForm(INITIAL_FORM);
+    setMutationError(null);
   }
 
   function toggleCollapse(key: string) {
@@ -108,16 +136,12 @@ export default function Expenses() {
 
   function openAdd() {
     setForm({
-      label: "",
-      amount: "",
-      type: "monthly",
+      ...INITIAL_FORM,
       categoryId: String(categories![0]?.id ?? ""),
       accountId: String(accounts![0]?.id ?? ""),
-      isActive: true,
-      note: "",
-      endDate: "",
     });
     setEditItem(null);
+    setMutationError(null);
     setShowAdd(true);
   }
 
@@ -133,28 +157,37 @@ export default function Expenses() {
       endDate: e.endDate ?? "",
     });
     setEditItem(e);
+    setMutationError(null);
     setShowAdd(true);
   }
 
   async function handleSubmit() {
     if (!form.label || !form.amount || !form.categoryId || !form.accountId) return;
-    const payload = {
-      label: form.label,
-      amount: parseFloat(form.amount),
-      type: form.type,
-      categoryId: parseInt(form.categoryId),
-      accountId: parseInt(form.accountId),
-      isActive: form.isActive,
-      note: form.note || undefined,
-      endDate: form.endDate || null,
-    };
-    if (editItem) {
-      await api.patch(`/expenses/${editItem.id}`, payload);
-    } else {
-      await api.post("/expenses", payload);
+    setIsSubmitting(true);
+    setMutationError(null);
+    try {
+      const payload = {
+        label: form.label,
+        amount: parseFloat(form.amount),
+        type: form.type,
+        categoryId: parseInt(form.categoryId),
+        accountId: parseInt(form.accountId),
+        isActive: form.isActive,
+        note: form.note || undefined,
+        endDate: form.endDate || null,
+      };
+      if (editItem) {
+        await api.patch(`/expenses/${editItem.id}`, payload);
+      } else {
+        await api.post("/expenses", payload);
+      }
+      closeModal();
+      refetchExpenses();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowAdd(false);
-    refetchExpenses();
   }
 
   async function handleDelete(id: number) {
@@ -306,12 +339,14 @@ export default function Expenses() {
                           <div className="flex gap-1 mt-1">
                             <button
                               onClick={() => openEdit(e)}
+                              aria-label="Bearbeiten"
                               className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                             >
                               <Pencil size={13} />
                             </button>
                             <button
                               onClick={() => handleDelete(e.id)}
+                              aria-label="Löschen"
                               className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                             >
                               <Trash2 size={13} />
@@ -426,12 +461,14 @@ export default function Expenses() {
                             <div className="flex items-center gap-1 justify-end">
                               <button
                                 onClick={() => openEdit(e)}
+                                aria-label="Bearbeiten"
                                 className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                               >
                                 <Pencil size={13} />
                               </button>
                               <button
                                 onClick={() => handleDelete(e.id)}
+                                aria-label="Löschen"
                                 className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
                               >
                                 <Trash2 size={13} />
@@ -458,7 +495,8 @@ export default function Expenses() {
                 {editItem ? "Ausgabe bearbeiten" : "Ausgabe hinzufügen"}
               </h3>
               <button
-                onClick={() => setShowAdd(false)}
+                onClick={closeModal}
+                aria-label="Schließen"
                 className="p-1 hover:bg-gray-800 rounded"
               >
                 <X size={18} className="text-gray-400" />
@@ -566,19 +604,24 @@ export default function Expenses() {
               </Field>
             )}
 
+            {mutationError && (
+              <p className="text-red-400 text-sm">{mutationError}</p>
+            )}
+
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowAdd(false)}
+                onClick={closeModal}
                 className="flex-1 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
               >
                 Abbrechen
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={15} />
-                {editItem ? "Speichern" : "Hinzufügen"}
+                {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
           </div>
