@@ -27,64 +27,80 @@ function mapRow(r: any) {
 }
 
 // GET /api/templates[?type=income|expense]
-router.get("/", async (req, res) => {
-  const db = await getDb();
-  const { type } = req.query;
-  let sql = SELECT_SQL;
-  const params: any[] = [];
-  if (type) {
-    sql += " WHERE t.type = ?";
-    params.push(type);
+router.get("/", async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const { type } = req.query;
+    let sql = SELECT_SQL;
+    const params: any[] = [];
+    if (type) {
+      sql += " WHERE t.type = ?";
+      params.push(type);
+    }
+    sql += " ORDER BY t.id DESC";
+    const { rows } = await db.query(sql, params);
+    res.json((rows as any[]).map(mapRow));
+  } catch (err) {
+    next(err);
   }
-  sql += " ORDER BY t.id DESC";
-  const { rows } = await db.query(sql, params);
-  res.json((rows as any[]).map(mapRow));
 });
 
 // POST /api/templates
-router.post("/", async (req, res) => {
-  const { label, amount, type, categoryId, accountId, note } = req.body;
-  if (!label || amount == null || !type || !accountId) {
-    return res.status(400).json({ error: "label, amount, type, accountId are required" });
+router.post("/", async (req, res, next) => {
+  try {
+    const { label, amount, type, categoryId, accountId, note } = req.body;
+    if (!label || amount == null || !type || !accountId) {
+      return res.status(400).json({ error: "label, amount, type, accountId are required" });
+    }
+    const db = await getDb();
+    const result = await db.run(
+      `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [label, amount, type, categoryId || null, accountId, note || null]
+    );
+    res.status(201).json({ id: result.lastId });
+  } catch (err) {
+    next(err);
   }
-  const db = await getDb();
-  const result = await db.run(
-    `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [label, amount, type, categoryId || null, accountId, note || null]
-  );
-  res.status(201).json({ id: result.lastId });
 });
 
 // PATCH /api/templates/:id
-router.patch("/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
-  const db = await getDb();
-  const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
-  if ((rows as any[]).length === 0) return res.status(404).json({ error: "Not found" });
+router.patch("/:id", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    const db = await getDb();
+    const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ?", [id]);
+    if ((rows as any[]).length === 0) return res.status(404).json({ error: "Not found" });
 
-  const fields: string[] = [];
-  const values: any[] = [];
-  const { label, amount, type, categoryId, accountId, note } = req.body;
-  if (label !== undefined) { fields.push("label = ?"); values.push(label); }
-  if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
-  if (type !== undefined) { fields.push("type = ?"); values.push(type); }
-  if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId || null); }
-  if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
-  if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
-  if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
+    const fields: string[] = [];
+    const values: any[] = [];
+    const { label, amount, type, categoryId, accountId, note } = req.body;
+    if (label !== undefined) { fields.push("label = ?"); values.push(label); }
+    if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
+    if (type !== undefined) { fields.push("type = ?"); values.push(type); }
+    if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId || null); }
+    if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
+    if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
+    if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-  await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
-  res.json({ ok: true });
+    await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ?`, [...values, id]);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // DELETE /api/templates/:id
-router.delete("/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
-  const db = await getDb();
-  const result = await db.run("DELETE FROM transaction_templates WHERE id = ?", [id]);
-  if (result.changes === 0) return res.status(404).json({ error: "Not found" });
-  res.json({ ok: true });
+router.delete("/:id", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    const db = await getDb();
+    const result = await db.run("DELETE FROM transaction_templates WHERE id = ?", [id]);
+    if (result.changes === 0) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

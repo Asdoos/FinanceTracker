@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, api } from "../lib/api";
+import toast from "react-hot-toast";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, PlayCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, PlayCircle } from "lucide-react";
+import { Modal } from "../components/Modal";
 
 type Template = {
   id: number;
@@ -125,6 +127,7 @@ export default function Templates() {
       }
       closeFormModal();
       refetch();
+      toast.success(editItem ? "Vorlage gespeichert" : "Vorlage erstellt");
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -137,8 +140,9 @@ export default function Templates() {
     try {
       await api.delete(`/templates/${id}`);
       refetch();
+      toast.success("Vorlage gelöscht");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -164,6 +168,7 @@ export default function Templates() {
         note: bookItem.note ?? undefined,
       });
       setBookItem(null);
+      toast.success("Transaktion gebucht");
       navigate("/transactions");
     } catch (err) {
       setBookError(err instanceof Error ? err.message : "Unbekannter Fehler");
@@ -283,24 +288,11 @@ export default function Templates() {
 
       {/* Vorlage Add/Edit Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {editItem
-                  ? "Vorlage bearbeiten"
-                  : tab === "expense"
-                  ? "Ausgabe-Vorlage erstellen"
-                  : "Einnahme-Vorlage erstellen"}
-              </h3>
-              <button
-                onClick={closeFormModal}
-                aria-label="Schließen"
-                className="p-1 hover:bg-gray-800 rounded"
-              >
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
+        <Modal
+          title={editItem ? "Vorlage bearbeiten" : tab === "expense" ? "Ausgabe-Vorlage erstellen" : "Einnahme-Vorlage erstellen"}
+          onClose={closeFormModal}
+          maxWidth="md"
+        >
 
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Bezeichnung</label>
@@ -382,26 +374,15 @@ export default function Templates() {
                 {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Erstellen"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Buchen Modal */}
       {bookItem && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                „{bookItem.label}" buchen
-              </h3>
-              <button
-                onClick={() => { setBookItem(null); setBookError(null); }}
-                aria-label="Schließen"
-                className="p-1 hover:bg-gray-800 rounded"
-              >
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
+        <Modal
+          title={`„${bookItem.label}" buchen`}
+          onClose={() => { setBookItem(null); setBookError(null); }}
+        >
 
             <p className="text-sm text-gray-400">
               {tab === "expense" ? "-" : "+"}{eur(bookItem.amount)}
@@ -440,8 +421,7 @@ export default function Templates() {
                 {isSubmittingBook ? "Buchen..." : "Buchen"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

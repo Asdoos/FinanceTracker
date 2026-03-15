@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
@@ -128,6 +129,13 @@ export default function App() {
         {/* Mobile Bottom Navigation */}
         <MobileBottomNav />
       </div>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: { background: "#1f2937", color: "#f9fafb", border: "1px solid #374151" },
+          duration: 3000,
+        }}
+      />
     </BrowserRouter>
   );
 }

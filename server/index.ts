@@ -1,5 +1,5 @@
 import http from "http";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import path from "path";
 import { createRequire } from "module";
@@ -32,6 +32,13 @@ app.use("/api/summary", summaryRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/templates", templatesRouter);
+
+// ── Central error handler ────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err);
+  res.status(err.status ?? 500).json({ error: err.message ?? "Internal server error" });
+});
 
 // ── Start server (after DB is initialized) ──────────────────────────────────
 getDb().then(async () => {

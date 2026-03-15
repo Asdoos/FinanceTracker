@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
+import toast from "react-hot-toast";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
+import { Modal } from "../components/Modal";
 
 const TAX_RATE = 0.26375; // Abgeltungssteuer 25% + Soli 5,5%
 
@@ -245,6 +247,7 @@ export default function Accounts() {
       closeAccountModal();
       refetchAccounts();
       refetchSummary();
+      toast.success(editId ? "Konto gespeichert" : "Konto erstellt");
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -258,8 +261,9 @@ export default function Accounts() {
       await api.delete(`/accounts/${id}`);
       refetchAccounts();
       refetchSummary();
+      toast.success("Konto gelöscht");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -283,6 +287,7 @@ export default function Accounts() {
       setBalanceModal(null);
       refetchAccounts();
       refetchSummary();
+      toast.success("Saldo aktualisiert");
     } finally {
       setIsSubmittingBalance(false);
     }
@@ -579,18 +584,7 @@ export default function Accounts() {
 
       {/* Balance Modal */}
       {balanceModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-xs mx-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold text-white">Kontostand erfassen</h3>
-              <button
-                onClick={() => setBalanceModal(null)}
-                aria-label="Schließen"
-                className="p-1 hover:bg-gray-800 rounded"
-              >
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
+        <Modal title="Kontostand erfassen" onClose={() => setBalanceModal(null)}>
             <p className="text-sm text-gray-400 -mt-2">{balanceModal.name}</p>
 
             <div className="space-y-1">
@@ -635,26 +629,14 @@ export default function Accounts() {
                 <Check size={15} /> {isSubmittingBalance ? "Speichern..." : "Speichern"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {showAdd && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {editId ? "Konto bearbeiten" : "Konto hinzufügen"}
-              </h3>
-              <button
-                onClick={closeAccountModal}
-                aria-label="Schließen"
-                className="p-1 hover:bg-gray-800 rounded"
-              >
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
-
+        <Modal
+          title={editId ? "Konto bearbeiten" : "Konto hinzufügen"}
+          onClose={closeAccountModal}
+        >
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Name</label>
               <input
@@ -778,8 +760,7 @@ export default function Accounts() {
                 {isSubmitting ? "Speichern..." : editId ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

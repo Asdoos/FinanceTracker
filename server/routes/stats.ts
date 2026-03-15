@@ -4,7 +4,7 @@ import { getDb } from "../db";
 const router = Router();
 
 // GET /api/stats?months=12  (0 = all time)
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
     const monthsRaw = parseInt(req.query.months as string);
@@ -86,8 +86,8 @@ router.get("/", async (req, res) => {
     const totalExpenses = monthly.reduce((s, m) => s + m.expenses, 0);
 
     res.json({ monthly, byCategory, totalIncome, totalExpenses, months });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    next(err);
   }
 });
 

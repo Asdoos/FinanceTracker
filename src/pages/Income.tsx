@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
+import toast from "react-hot-toast";
 import { eur } from "../lib/format";
-import { Plus, Pencil, Trash2, X, Check, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Search } from "lucide-react";
+import { Modal } from "../components/Modal";
 
 type IncomeItem = {
   id: number;
@@ -142,6 +144,7 @@ export default function Income() {
       }
       closeModal();
       refetchIncomes();
+      toast.success(editItem ? "Einnahme gespeichert" : "Einnahme hinzugefügt");
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -151,8 +154,13 @@ export default function Income() {
 
   async function handleDelete(id: number) {
     if (!window.confirm("Diese Einnahme wirklich löschen?")) return;
-    await api.delete(`/income/${id}`);
-    refetchIncomes();
+    try {
+      await api.delete(`/income/${id}`);
+      refetchIncomes();
+      toast.success("Einnahme gelöscht");
+    } catch (err: any) {
+      toast.error(err.message);
+    }
   }
 
   return (
@@ -348,16 +356,11 @@ export default function Income() {
       </div>
 
       {showAdd && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {editItem ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}
-              </h3>
-              <button onClick={closeModal} aria-label="Schließen" className="p-1 hover:bg-gray-800 rounded">
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
+        <Modal
+          title={editItem ? "Einnahme bearbeiten" : "Einnahme hinzufügen"}
+          onClose={closeModal}
+          maxWidth="md"
+        >
 
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Bezeichnung</label>
@@ -452,8 +455,7 @@ export default function Income() {
                 {isSubmitting ? "Speichern..." : editItem ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

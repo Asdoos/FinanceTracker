@@ -58,6 +58,7 @@ type Account = {
   color: string;
   interest_rate?: number | null;
   interest_rate_until?: string | null;
+  actual_balance?: number | null;
 };
 
 export default function Dashboard() {
@@ -83,6 +84,10 @@ export default function Dashboard() {
     );
   }
 
+  const totalIncome = summary.totalMonthlyIncome + summary.transactionIncomeThisMonth;
+  const totalExpenses = summary.totalMonthlyExpenses + summary.transactionExpensesThisMonth;
+  const totalRest = totalIncome - totalExpenses;
+
   const chartData = summary.byCategory
     .filter((c) => c.monthly > 0)
     .map((c) => ({
@@ -99,27 +104,35 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         <KpiCard
           label="Monatliche Einnahmen"
-          value={eur(summary.totalMonthlyIncome)}
-          sub={`${eur(summary.totalAnnualIncome)} / Jahr`}
+          value={eur(totalIncome)}
+          sub={
+            summary.transactionIncomeThisMonth > 0
+              ? `Fix: ${eur(summary.totalMonthlyIncome)} + Einmalig: ${eur(summary.transactionIncomeThisMonth)}`
+              : `${eur(summary.totalAnnualIncome)} / Jahr`
+          }
           icon={<TrendingUp size={18} />}
           color="text-green-400"
           bg="bg-green-500/10"
         />
         <KpiCard
           label="Monatliche Ausgaben"
-          value={eur(summary.totalMonthlyExpenses)}
-          sub={`${eur(summary.totalAnnualExpenses)} / Jahr`}
+          value={eur(totalExpenses)}
+          sub={
+            summary.transactionExpensesThisMonth > 0
+              ? `Fix: ${eur(summary.totalMonthlyExpenses)} + Einmalig: ${eur(summary.transactionExpensesThisMonth)}`
+              : `${eur(summary.totalAnnualExpenses)} / Jahr`
+          }
           icon={<TrendingDown size={18} />}
           color="text-red-400"
           bg="bg-red-500/10"
         />
         <KpiCard
           label="Rest / Monat"
-          value={eur(summary.rest)}
-          sub={summary.rest >= 0 ? "Überschuss" : "Defizit"}
+          value={eur(totalRest)}
+          sub={totalRest >= 0 ? "Überschuss" : "Defizit"}
           icon={<Wallet size={18} />}
-          color={summary.rest >= 0 ? "text-blue-400" : "text-orange-400"}
-          bg={summary.rest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
+          color={totalRest >= 0 ? "text-blue-400" : "text-orange-400"}
+          bg={totalRest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
         />
       </div>
 
@@ -206,6 +219,23 @@ export default function Dashboard() {
                 );
               })}
             </div>
+
+            {/* Prognostizierte Jahreszinsen */}
+            {(() => {
+              const withRate = (accounts ?? []).filter(a => a.interest_rate && a.actual_balance);
+              if (withRate.length === 0) return null;
+              const projected = withRate.reduce(
+                (sum, a) => sum + (a.actual_balance! * a.interest_rate!) / 100, 0
+              );
+              const pctP = Math.min((projected / FREIBETRAG_LIMIT) * 100, 100);
+              const col = projected > FREIBETRAG_LIMIT ? "text-red-400" : projected >= 800 ? "text-yellow-400" : "text-emerald-400";
+              return (
+                <div className="pt-2 border-t border-gray-800 flex justify-between text-xs text-gray-500">
+                  <span>Prognostizierte Jahreszinsen</span>
+                  <span className={col}>{eur(projected)} ({pctP.toFixed(0)} %)</span>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}

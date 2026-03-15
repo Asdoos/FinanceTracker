@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
-import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
+import toast from "react-hot-toast";
+import { Plus, Pencil, Trash2, Check } from "lucide-react";
+import { Modal } from "../components/Modal";
 
 type Category = {
   id: number;
@@ -90,6 +92,7 @@ export default function Categories() {
       }
       closeModal();
       refetch();
+      toast.success(editId ? "Kategorie gespeichert" : "Kategorie erstellt");
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -102,8 +105,9 @@ export default function Categories() {
     try {
       await api.delete(`/categories/${id}`);
       refetch();
+      toast.success("Kategorie gelöscht");
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -177,20 +181,10 @@ export default function Categories() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {editId ? "Kategorie bearbeiten" : "Kategorie hinzufügen"}
-              </h3>
-              <button
-                onClick={closeModal}
-                aria-label="Schließen"
-                className="p-1 hover:bg-gray-800 rounded"
-              >
-                <X size={18} className="text-gray-400" />
-              </button>
-            </div>
+        <Modal
+          title={editId ? "Kategorie bearbeiten" : "Kategorie hinzufügen"}
+          onClose={closeModal}
+        >
 
             <div className="space-y-1">
               <label className="text-xs text-gray-400 font-medium">Name</label>
@@ -268,8 +262,7 @@ export default function Categories() {
                 {isSubmitting ? "Speichern..." : editId ? "Speichern" : "Hinzufügen"}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
