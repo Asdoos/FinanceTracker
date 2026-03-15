@@ -104,4 +104,67 @@ router.get("/", async (req, res, next) => {
   }
 });
 
+// GET /api/stats/budget-comparison?months=6
+router.get("/budget-comparison", async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const monthsRaw = parseInt(req.query.months as string);
+    const months = isNaN(monthsRaw) || monthsRaw <= 0 ? 6 : monthsRaw;
+
+    // Build list of YYYY-MM strings for the last N months
+    const now = new Date();
+    const monthList: string[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthList.push(d.toISOString().slice(0, 7));
+    }
+
+    // Actual totals from transactions, grouped by month
+    const { rows: txRows } = await db.query(
+      `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
+       FROM transactions
+       WHERE substr(date, 1, 7) >= ?
+       GROUP BY substr(date, 1, 7), type`,
+      [monthList[0]]
+    );
+    const txMap = new Map<string, { income: number; expenses: number }>();
+    for (const r of txRows as any[]) {
+      if (!txMap.has(r.month)) txMap.set(r.month, { income: 0, expenses: 0 });
+      const e = txMap.get(r.month)!;
+      if (r.type === "income") e.income = Number(r.total);
+      else e.expenses = Number(r.total);
+    }
+
+    // Planned totals from recurring items (active, respecting end_date per month)
+    const { rows: expItems } = await db.query(
+      `SELECT amount, type, end_date FROM expense_items WHERE is_active = 1`
+    );
+    const { rows: incItems } = await db.query(
+      `SELECT amount, type FROM income_sources WHERE is_active = 1`
+    );
+    const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
+
+    const result = monthList.map((month) => {
+      const monthEnd = month + "-31"; // generous end-of-month for end_date comparison
+      const plannedExpenses = (expItems as any[])
+        .filter((r) => r.end_date == null || r.end_date >= month + "-01")
+        .reduce((s: number, r: any) => s + toMonthly(Number(r.amount), r.type), 0);
+      const plannedIncome = (incItems as any[])
+        .reduce((s: number, r: any) => s + toMonthly(Number(r.amount), r.type), 0);
+      const tx = txMap.get(month) ?? { income: 0, expenses: 0 };
+      return {
+        month,
+        plannedExpenses: Math.round(plannedExpenses * 100) / 100,
+        actualExpenses: tx.expenses,
+        plannedIncome: Math.round(plannedIncome * 100) / 100,
+        actualIncome: tx.income,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

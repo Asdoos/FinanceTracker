@@ -43,6 +43,14 @@ interface Stats {
   monthlyRecurringIncome?: number;
 }
 
+interface BudgetComparison {
+  month: string;
+  plannedExpenses: number;
+  actualExpenses: number;
+  plannedIncome: number;
+  actualIncome: number;
+}
+
 const RANGES: { label: string; value: 3 | 6 | 12 | 0 }[] = [
   { label: "3M", value: 3 },
   { label: "6M", value: 6 },
@@ -69,6 +77,7 @@ const tooltipStyle = {
 export default function Statistics() {
   const [range, setRange] = useState<3 | 6 | 12 | 0>(6);
   const { data: stats, loading, error } = useApi<Stats>(`/stats?months=${range}`);
+  const { data: budgetData } = useApi<BudgetComparison[]>(`/stats/budget-comparison?months=${range === 0 ? 12 : range}`);
 
   const isEmpty = !loading && stats && stats.monthly.length === 0;
 
@@ -205,6 +214,93 @@ export default function Statistics() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Budget-vs-Ist */}
+          {budgetData && budgetData.length > 0 && (
+            <div className="bg-gray-800 rounded-xl p-4">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4">
+                Budget-Vergleich: Geplant vs. Ist (Ausgaben)
+              </h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={budgetData}
+                  margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="month"
+                    tickFormatter={formatMonth}
+                    tick={{ fill: "#9ca3af", fontSize: 11 }}
+                    axisLine={{ stroke: "#4b5563" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={formatYAxis}
+                    tick={{ fill: "#9ca3af", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={36}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      eur(value),
+                      name === "plannedExpenses" ? "Geplant" : "Ist",
+                    ]}
+                    labelFormatter={formatMonth}
+                    contentStyle={tooltipStyle}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, color: "#9ca3af" }}
+                    formatter={(value) =>
+                      value === "plannedExpenses" ? "Geplant (Fixkosten)" : "Ist (Transaktionen)"
+                    }
+                  />
+                  <Bar dataKey="plannedExpenses" name="plannedExpenses" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                  <Bar
+                    dataKey="actualExpenses"
+                    name="actualExpenses"
+                    radius={[3, 3, 0, 0]}
+                    label={false}
+                  >
+                    {budgetData.map((entry, i) => (
+                      <Cell
+                        key={i}
+                        fill={entry.actualExpenses > entry.plannedExpenses ? "#ef4444" : "#22c55e"}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              {/* Delta Tabelle */}
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-xs text-gray-400">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left pb-2 font-medium">Monat</th>
+                      <th className="text-right pb-2 font-medium">Geplant</th>
+                      <th className="text-right pb-2 font-medium">Ist</th>
+                      <th className="text-right pb-2 font-medium">Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {budgetData.map((row) => {
+                      const delta = row.plannedExpenses - row.actualExpenses;
+                      return (
+                        <tr key={row.month} className="border-b border-gray-700/50">
+                          <td className="py-1.5">{formatMonth(row.month)}</td>
+                          <td className="text-right">{eur(row.plannedExpenses)}</td>
+                          <td className="text-right">{eur(row.actualExpenses)}</td>
+                          <td className={`text-right font-medium ${delta >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {delta >= 0 ? "+" : ""}{eur(delta)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Bottom row: Line chart + Pie chart */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

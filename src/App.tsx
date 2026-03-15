@@ -1,6 +1,7 @@
+import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark } from "lucide-react";
+import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clock, BarChart2, Bookmark, Search } from "lucide-react";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
@@ -9,6 +10,7 @@ import Categories from "./pages/Categories";
 import Transactions from "./pages/Transactions";
 import Statistics from "./pages/Statistics";
 import Templates from "./pages/Templates";
+import { CommandPalette } from "./components/CommandPalette";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 
 const nav = [
@@ -76,6 +78,19 @@ function VersionFooter() {
 }
 
 export default function App() {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
     <BrowserRouter>
       <div className="flex h-screen overflow-hidden">
@@ -90,7 +105,17 @@ export default function App() {
               <p className="text-xs text-gray-500 leading-tight">Übersicht & Verwaltung</p>
             </div>
           </div>
-          <nav className="flex-1 px-3 py-4 space-y-1">
+          <div className="px-3 pt-3">
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="w-full flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <Search size={14} />
+              <span className="flex-1 text-left">Suchen…</span>
+              <kbd className="text-xs bg-gray-700 px-1.5 py-0.5 rounded border border-gray-600">⌃K</kbd>
+            </button>
+          </div>
+          <nav className="flex-1 px-3 py-3 space-y-1">
             {nav.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
@@ -129,6 +154,7 @@ export default function App() {
         {/* Mobile Bottom Navigation */}
         <MobileBottomNav />
       </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Toaster
         position="bottom-right"
         toastOptions={{

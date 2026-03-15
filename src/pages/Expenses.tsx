@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur, pct } from "../lib/format";
-import { Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, Search, Download } from "lucide-react";
 import { Modal } from "../components/Modal";
 
 type ExpenseItem = {
@@ -208,12 +208,21 @@ export default function Expenses() {
     <div className="p-3 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-white">Ausgaben</h2>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
-        >
-          <Plus size={15} /> Hinzufügen
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/export/expenses"
+            download
+            className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium"
+          >
+            <Download size={15} /> Export
+          </a>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
+          >
+            <Plus size={15} /> Hinzufügen
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
