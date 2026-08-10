@@ -2,8 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
 import { signedAmount } from "../lib/transactions";
+import { accountIn, transactionReadPredicate, transactionWritePredicate, visibleAccounts } from "../lib/visibility";
+import { checkAccountAndCategory } from "../lib/coupling";
 
 const router = Router();
+
+// Lesen: *ein* sichtbares Ende genügt. Schreiben: **beide** Enden — Ticket 12
+// verengt hier die Regel aus Ticket 02.
+const readPredicate = transactionReadPredicate("t");
+const writePredicate = transactionWritePredicate();
 
 const TransactionCreateSchema = z.object({
   date: z.string().min(10),
@@ -34,6 +41,7 @@ const isTransfer = (type: string) => type === "transfer";
 async function resolveAccounts(
   db: Awaited<ReturnType<typeof getDb>>,
   userId: number,
+  acc: Awaited<ReturnType<typeof visibleAccounts>>,
   type: string,
   accountId: number,
   counterAccountId: number | null | undefined,
@@ -43,6 +51,9 @@ async function resolveAccounts(
     if (counterAccountId != null) {
       return { error: "Ein Gegenkonto gibt es nur bei Übertragungen." };
     }
+    // Kopplungs-Check: die Kategorie muss aus dem Raum des Kontos stammen.
+    const coupling = await checkAccountAndCategory(db, userId, acc, accountId, categoryId);
+    if (coupling) return { error: coupling };
     return { counterAccountId: null, categoryId: categoryId ?? null };
   }
 
@@ -56,15 +67,11 @@ async function resolveAccounts(
     return { error: "Quelle und Ziel einer Übertragung müssen verschiedene Konten sein." };
   }
 
-  // Beide Konten müssen dem Nutzer gehören (in v0.26 wird daraus „beide im
-  // Sichtbarkeitsraum").
-  const { rows } = await db.query(
-    // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
-    "SELECT id FROM accounts WHERE user_id = ? AND (id = ? OR id = ?)",
-    [userId, accountId, counterAccountId]
-  );
-  if (rows.length < 2) {
-    return { error: "Beide Konten einer Übertragung müssen dir gehören." };
+  // **Beide** Enden müssen im Sichtbarkeitsraum liegen. Ticket 12 macht daraus die
+  // Schreibregel: du bewegst nur Salden, die du sehen darfst. Auch beim Anlegen
+  // ausdrücklich geprüft, obwohl beide Enden hier konstruktionsbedingt sichtbar sind.
+  if (!acc.all.includes(Number(accountId)) || !acc.all.includes(Number(counterAccountId))) {
+    return { error: "Beide Konten einer Übertragung müssen für dich sichtbar sein." };
   }
 
   return { counterAccountId, categoryId: null };
@@ -107,6 +114,7 @@ function runningBalances(rows: any[], accountId: number, anchor: number, anchorD
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { type, month } = req.query;
     const accountId = req.query.accountId ? parseInt(req.query.accountId as string, 10) : null;
 
@@ -123,9 +131,9 @@ router.get("/", async (req, res, next) => {
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts   a ON a.id = t.account_id
       LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
-      WHERE t.created_by = ?
+      WHERE ${readPredicate(acc.all)}
     `;
-    const params: any[] = [req.user!.id];
+    const params: any[] = [];
 
     if (accountId !== null && !isNaN(accountId)) {
       // Beide Spalten: eine Übertragung erscheint im Auszug *beider* Konten.
@@ -153,9 +161,8 @@ router.get("/", async (req, res, next) => {
     const gaplessStatement = accountId !== null && !isNaN(accountId) && !type && !month;
     if (gaplessStatement) {
       const { rows: accRows } = await db.query(
-        // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
-        "SELECT actual_balance, actual_balance_date FROM accounts WHERE id = ? AND user_id = ?",
-        [accountId, req.user!.id]
+        `SELECT actual_balance, actual_balance_date FROM accounts WHERE id = ? AND ${accountIn("id", acc.all)}`,
+        [accountId]
       );
       const anchor = accRows[0]?.actual_balance;
       if (anchor !== null && anchor !== undefined) {
@@ -209,7 +216,8 @@ router.post("/", async (req, res, next) => {
     const { date, label, amount, type, categoryId, accountId, counterAccountId, note } = parsed.data;
 
     const db = await getDb();
-    const resolved = await resolveAccounts(db, req.user!.id, type, accountId, counterAccountId, categoryId);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const resolved = await resolveAccounts(db, req.user!.id, acc, type, accountId, counterAccountId, categoryId);
     if ("error" in resolved) return res.status(400).json({ error: resolved.error });
 
     const result = await db.run(
@@ -232,7 +240,8 @@ router.patch("/:id", async (req, res, next) => {
     const { date, label, amount, type, categoryId, accountId, counterAccountId, note } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT * FROM transactions WHERE id = ? AND created_by = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const { rows } = await db.query(`SELECT * FROM transactions WHERE id = ? AND ${writePredicate(acc.all)}`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
     const current = rows[0];
 
@@ -243,7 +252,7 @@ router.patch("/:id", async (req, res, next) => {
     const mergedCounter = counterAccountId !== undefined ? counterAccountId : current.counter_account_id ?? null;
     const mergedCategory = categoryId !== undefined ? categoryId : current.category_id ?? null;
     const resolved = await resolveAccounts(
-      db, req.user!.id, mergedType, mergedAccountId, mergedCounter, mergedCategory
+      db, req.user!.id, acc, mergedType, mergedAccountId, mergedCounter, mergedCategory
     );
     if ("error" in resolved) return res.status(400).json({ error: resolved.error });
 
@@ -262,8 +271,8 @@ router.patch("/:id", async (req, res, next) => {
     fields.push("counter_account_id = ?"); values.push(resolved.counterAccountId);
 
     await db.run(
-      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
-      [...values, id, req.user!.id]
+      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND ${writePredicate(acc.all)}`,
+      [...values, id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -275,7 +284,8 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM transactions WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const result = await db.run(`DELETE FROM transactions WHERE id = ? AND ${writePredicate(acc.all)}`, [req.params.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Transaction not found" });
     res.json({ ok: true });
   } catch (err) {

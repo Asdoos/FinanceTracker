@@ -1,14 +1,19 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { accountIn, transactionReadPredicate, visibleAccounts } from "../lib/visibility";
 import { EXCLUDE_TRANSFERS_SQL } from "../lib/transactions";
 
 const router = Router();
+
+// Zwei Varianten, weil die Queries teils mit, teils ohne Alias auf transactions gehen.
+const readPredicate = transactionReadPredicate();
+const readPredicateT = transactionReadPredicate("t");
 
 // GET /api/stats?months=12  (0 = all time)
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
-    const userId = req.user!.id;
+    const acc = await visibleAccounts(db, req.user!.id);
     const monthsRaw = parseInt(req.query.months as string);
     const months = isNaN(monthsRaw) ? 12 : monthsRaw;
 
@@ -22,11 +27,11 @@ router.get("/", async (req, res, next) => {
     }
 
     // ── 1. Monthly totals ───────────────────────────────────────────────
-    const monthlyParams: any[] = [userId];
+    const monthlyParams: any[] = [];
     // Übertragungen fallen auf SQL-Ebene heraus. Der `else`-Zweig unten machte
     // bisher alles Unbekannte zur Ausgabe — ein Transfer wäre dort stillschweigend
     // gelandet.
-    let monthlyWhere = `WHERE created_by = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
+    let monthlyWhere = `WHERE ${readPredicate(acc.all)} AND ${EXCLUDE_TRANSFERS_SQL}`;
     if (cutoff) {
       monthlyWhere += " AND date >= ?";
       monthlyParams.push(cutoff);
@@ -61,8 +66,8 @@ router.get("/", async (req, res, next) => {
     }));
 
     // ── 2. Category breakdown (expenses only) ──────────────────────────
-    const catParams: any[] = [userId];
-    let catWhere = "WHERE t.type = 'expense' AND t.created_by = ?";
+    const catParams: any[] = [];
+    let catWhere = `WHERE t.type = 'expense' AND ${readPredicateT(acc.all)}`;
     if (cutoff) {
       catWhere += " AND t.date >= ?";
       catParams.push(cutoff);
@@ -94,12 +99,12 @@ router.get("/", async (req, res, next) => {
     // ── Recurring monthly baseline ───────────────────────────────────────
     const today = new Date().toISOString().slice(0, 10);
     const { rows: recurExp } = await db.query(
-      `SELECT amount, type FROM expense_items WHERE created_by = ? AND is_active AND (end_date IS NULL OR end_date >= ?)`,
-      [userId, today]
+      `SELECT amount, type FROM expense_items WHERE ${accountIn("account_id", acc.all)} AND is_active AND (end_date IS NULL OR end_date >= ?)`,
+      [today]
     );
     const { rows: recurInc } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE created_by = ? AND is_active`,
-      [userId]
+      `SELECT amount, type FROM income_sources WHERE ${accountIn("account_id", acc.all)} AND is_active`,
+      []
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
     const monthlyRecurringExpenses = (recurExp as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0);
@@ -115,7 +120,7 @@ router.get("/", async (req, res, next) => {
 router.get("/budget-comparison", async (req, res, next) => {
   try {
     const db = await getDb();
-    const userId = req.user!.id;
+    const acc = await visibleAccounts(db, req.user!.id);
     const monthsRaw = parseInt(req.query.months as string);
     const months = isNaN(monthsRaw) || monthsRaw <= 0 ? 6 : monthsRaw;
 
@@ -131,9 +136,9 @@ router.get("/budget-comparison", async (req, res, next) => {
     const { rows: txRows } = await db.query(
       `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
        FROM transactions
-       WHERE created_by = ? AND substr(date, 1, 7) >= ? AND ${EXCLUDE_TRANSFERS_SQL}
+       WHERE ${readPredicate(acc.all)} AND substr(date, 1, 7) >= ? AND ${EXCLUDE_TRANSFERS_SQL}
        GROUP BY substr(date, 1, 7), type`,
-      [userId, monthList[0]]
+      [monthList[0]]
     );
     const txMap = new Map<string, { income: number; expenses: number }>();
     for (const r of txRows as any[]) {
@@ -146,12 +151,12 @@ router.get("/budget-comparison", async (req, res, next) => {
 
     // Planned totals from recurring items (active, respecting end_date per month)
     const { rows: expItems } = await db.query(
-      `SELECT amount, type, end_date FROM expense_items WHERE created_by = ? AND is_active`,
-      [userId]
+      `SELECT amount, type, end_date FROM expense_items WHERE ${accountIn("account_id", acc.all)} AND is_active`,
+      []
     );
     const { rows: incItems } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE created_by = ? AND is_active`,
-      [userId]
+      `SELECT amount, type FROM income_sources WHERE ${accountIn("account_id", acc.all)} AND is_active`,
+      []
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
 

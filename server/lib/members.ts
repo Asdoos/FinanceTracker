@@ -21,6 +21,30 @@ export const MEMBERSHIP_FIELDS =
   "m.is_default AS member_is_default, m.role AS member_role, m.status AS member_status";
 
 /**
+ * Meine Rolle an einem Konto, oder `null`, wenn ich es nicht sehe.
+ *
+ * Owner-Sonderrechte hängen **ausschließlich an der Konto-Entität** (löschen,
+ * einladen, entfernen, umwandeln). Kategorien, Fixkosten und Buchungen kennen
+ * keinen Owner-Vorbehalt: dort ist Schreibrecht deckungsgleich mit Sichtbarkeit,
+ * weil eine Asymmetrie „sehen ja, ändern nur eigene" `created_by` als
+ * Berechtigungsfeld wieder einführte und verwaiste, unbearbeitbare Zeilen
+ * erzeugte, sobald der Urheber austritt.
+ */
+export async function myRole(
+  db: DbAdapter,
+  accountId: number | string,
+  userId: number
+): Promise<"owner" | "member" | null> {
+  const { rows } = await db.query(
+    // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist hier der Mitgliedsbezug selbst
+    "SELECT role FROM account_members WHERE account_id = ? AND user_id = ? AND status = 'active'",
+    [accountId, userId]
+  );
+  if (rows.length === 0) return null;
+  return (rows[0] as any).role === "owner" ? "owner" : "member";
+}
+
+/**
  * Stellt die Owner-Mitgliedschaft eines Kontos her — idempotent.
  *
  * Aufgerufen an **allen drei** Stellen, an denen ein Konto eine `user_id` bekommt:

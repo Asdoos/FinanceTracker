@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { accountIn, visibleAccounts } from "../lib/visibility";
+import { checkAccountAndCategory } from "../lib/coupling";
 
 const router = Router();
 
@@ -33,18 +35,19 @@ function mapRow(r: any) {
 router.get("/suggestions", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows: candidates } = await db.query(
       `SELECT lower(t.label) AS key, t.label, t.account_id, t.type,
               ROUND(AVG(t.amount), 2) AS avg_amount, COUNT(*) AS cnt
        FROM transactions t
-       WHERE t.created_by = ?
+       WHERE ${accountIn("t.account_id", acc.all)}
        GROUP BY lower(t.label), t.account_id, t.type
        HAVING cnt >= 3`,
-      [req.user!.id]
+      []
     );
     const { rows: templates } = await db.query(
-      "SELECT lower(label) AS key, account_id, type FROM transaction_templates WHERE created_by = ?",
-      [req.user!.id]
+      `SELECT lower(label) AS key, account_id, type FROM transaction_templates WHERE ${accountIn("account_id", acc.all)}`,
+      []
     );
     const tmplSet = new Set(
       (templates as any[]).map((t: any) => `${t.key}|${t.account_id}|${t.type}`)
@@ -68,6 +71,7 @@ router.get("/suggestions", async (req, res, next) => {
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { type } = req.query;
     let sql = `
       SELECT t.id, t.label, t.amount, t.type, t.category_id, t.account_id, t.note,
@@ -76,9 +80,9 @@ router.get("/", async (req, res, next) => {
       FROM transaction_templates t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts   a ON a.id = t.account_id
-      WHERE t.created_by = ?
+      WHERE ${accountIn("t.account_id", acc.all)}
     `;
-    const params: any[] = [req.user!.id];
+    const params: any[] = [];
     if (type) {
       sql += " AND t.type = ?";
       params.push(type);
@@ -98,6 +102,9 @@ router.post("/", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const { label, amount, type, categoryId, accountId, note } = parsed.data;
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
+    const coupling = await checkAccountAndCategory(db, req.user!.id, acc, accountId, categoryId);
+    if (coupling) return res.status(400).json({ error: coupling });
     const result = await db.run(
       `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -114,7 +121,8 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ? AND created_by = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const { rows } = await db.query(`SELECT id, account_id, category_id FROM transaction_templates WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [id]);
     if ((rows as any[]).length === 0) return res.status(404).json({ error: "Not found" });
 
     const patchParsed = TemplatePatchSchema.safeParse(req.body);
@@ -130,7 +138,14 @@ router.patch("/:id", async (req, res, next) => {
     if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
-    await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`, [...values, id, req.user!.id]);
+    const coupling = await checkAccountAndCategory(
+      db, req.user!.id, acc,
+      accountId ?? Number((rows as any[])[0].account_id),
+      categoryId !== undefined ? categoryId : (rows as any[])[0].category_id
+    );
+    if (coupling) return res.status(400).json({ error: coupling });
+
+    await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [...values, id]);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -142,7 +157,8 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     const db = await getDb();
-    const result = await db.run("DELETE FROM transaction_templates WHERE id = ? AND created_by = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const result = await db.run(`DELETE FROM transaction_templates WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [id]);
     if (result.changes === 0) return res.status(404).json({ error: "Not found" });
     res.json({ ok: true });
   } catch (err) {

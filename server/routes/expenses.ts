@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { accountIn, visibleAccounts } from "../lib/visibility";
+import { checkAccountAndCategory } from "../lib/coupling";
 import { BOOL_PARAM } from "../db/sql";
 
 const router = Router();
@@ -22,19 +24,21 @@ const ExpensePatchSchema = ExpenseCreateSchema.partial();
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       `SELECT
          e.*,
          c.name  AS cat_name,
          c.color AS cat_color,
          a.name  AS acc_name,
-         a.color AS acc_color
+         a.color AS acc_color,
+         a.is_shared AS acc_shared
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       WHERE e.created_by = ?
+       WHERE ${accountIn("e.account_id", acc.all)}
        ORDER BY e.id`,
-      [req.user!.id]
+      []
     );
 
     const totalMonthly = rows
@@ -66,7 +70,7 @@ router.get("/", async (req, res, next) => {
             ? { id: r.category_id, name: r.cat_name, color: r.cat_color }
             : null,
           account: r.acc_name
-            ? { id: r.account_id, name: r.acc_name, color: r.acc_color }
+            ? { id: r.account_id, name: r.acc_name, color: r.acc_color, isShared: !!r.acc_shared }
             : null,
         };
       })
@@ -83,6 +87,9 @@ router.post("/", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
+    const coupling = await checkAccountAndCategory(db, req.user!.id, acc, accountId, categoryId);
+    if (coupling) return res.status(400).json({ error: coupling });
     const result = await db.run(
       `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month, created_by)
        VALUES (?, ?, ?, ?, ?, ${BOOL_PARAM}, ?, ?, ?, ?)`,
@@ -103,8 +110,22 @@ router.patch("/:id", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND created_by = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const { rows } = await db.query(
+      `SELECT id, account_id, category_id FROM expense_items WHERE id = ? AND ${accountIn("account_id", acc.all)}`,
+      [id]
+    );
     if (rows.length === 0) return res.status(404).json({ error: "Expense not found" });
+
+    // Gegen den zusammengeführten Zustand prüfen: ein Teil-Patch, der nur das Konto
+    // wechselt, verschiebt die Zeile sonst in einen Raum, in dem ihre Kategorie
+    // nicht gilt.
+    const coupling = await checkAccountAndCategory(
+      db, req.user!.id, acc,
+      accountId ?? Number(rows[0].account_id),
+      categoryId !== undefined ? categoryId : rows[0].category_id
+    );
+    if (coupling) return res.status(400).json({ error: coupling });
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -122,8 +143,8 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
-      [...values, id, req.user!.id]
+      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND ${accountIn("account_id", acc.all)}`,
+      [...values, id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -135,7 +156,8 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM expense_items WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const result = await db.run(`DELETE FROM expense_items WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [req.params.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Expense not found" });
     res.json({ ok: true });
   } catch (err) {

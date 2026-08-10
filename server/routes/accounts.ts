@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { accountIn, visibleAccounts } from "../lib/visibility";
 import { BOOL_PARAM } from "../db/sql";
-import { ensureOwnerMembership, MEMBERSHIP_FIELDS } from "../lib/members";
+import { ensureOwnerMembership, myRole, MEMBERSHIP_FIELDS } from "../lib/members";
+import { createDefaultSharedCategory } from "../lib/coupling";
 
 const router = Router();
 
@@ -11,13 +13,17 @@ const AccountCreateSchema = z.object({
   color: z.string().min(1),
   description: z.string().optional(),
   isDefault: z.boolean().optional(),
+  isShared: z.boolean().optional(),
   freibetrag: z.number().nullable().optional(),
   freibetragYear: z.number().int().nullable().optional(),
   interestRate: z.number().nullable().optional(),
   interestRateUntil: z.string().nullable().optional(),
   interestInterval: z.string().nullable().optional(),
 });
-const AccountPatchSchema = AccountCreateSchema.extend({
+// `isShared` fliegt aus der PATCH-Whitelist: als Feld läge die Umwandlung in
+// derselben generischen Feldliste wie „Farbe ändern" und wäre versehentlich
+// auslösbar. Sie bekommt in Phase D einen eigenen atomaren Endpoint.
+const AccountPatchSchema = AccountCreateSchema.omit({ isShared: true }).extend({
   actualBalance: z.number().nullable().optional(),
   actualBalanceDate: z.string().nullable().optional(),
 }).partial();
@@ -82,14 +88,15 @@ function accountPayload(r: any) {
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist hier der Mitgliedsbezug selbst, nicht der weggefallene Sichtbarkeitszweig
       `SELECT a.*, ${MEMBERSHIP_FIELDS}
        FROM accounts a
        LEFT JOIN account_members m ON m.account_id = a.id AND m.user_id = ?
-       WHERE a.user_id = ?
+       WHERE ${accountIn("a.id", acc.all)}
        ORDER BY a.id`,
-      [req.user!.id, req.user!.id]
+      [req.user!.id]
     );
     res.json(rows.map(accountPayload));
   } catch (err) {
@@ -102,13 +109,13 @@ router.post("/", async (req, res, next) => {
   try {
     const parsed = AccountCreateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = parsed.data;
+    const { name, color, description, isDefault, isShared, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = parsed.data;
     const db = await getDb();
     if (isDefault) await clearOtherDefaults(db, req.user!.id);
     const result = await db.run(
       // eslint-disable-next-line no-restricted-syntax -- Besitz-Spalte auf accounts, siehe CLAUDE.md
-      "INSERT INTO accounts (name, color, description, interest_rate, interest_rate_until, interest_interval, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [name, color, description || null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null, req.user!.id]
+      `INSERT INTO accounts (name, color, description, interest_rate, interest_rate_until, interest_interval, is_shared, user_id) VALUES (?, ?, ?, ?, ?, ?, ${BOOL_PARAM}, ?)`,
+      [name, color, description || null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null, isShared ? 1 : 0, req.user!.id]
     );
 
     // Eine der drei Stellen, an denen die Owner-Mitgliedschaft hergestellt wird —
@@ -120,6 +127,11 @@ router.post("/", async (req, res, next) => {
        WHERE account_id = ? AND user_id = ?`,
       [freibetrag ?? null, freibetragYear ?? null, isDefault ? 1 : 0, result.lastId, req.user!.id]
     );
+
+    // Ein frisches Gemeinschaftskonto startet mit genau einer Kategorie
+    // „Sonstiges" — expense_items.category_id ist NOT NULL, ohne sie ließe sich
+    // dort keine einzige Fixkostenposition anlegen.
+    if (isShared) await createDefaultSharedCategory(db, result.lastId, req.user!.id);
 
     res.status(201).json({ id: result.lastId });
   } catch (err) {
@@ -136,8 +148,8 @@ router.patch("/:id", async (req, res, next) => {
     const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, actualBalance, actualBalanceDate, interestInterval } = parsed.data;
 
     const db = await getDb();
-    // eslint-disable-next-line no-restricted-syntax -- Besitz-Spalte; das Sichtbarkeitsprädikat folgt in Phase B
-    const { rows } = await db.query("SELECT id FROM accounts WHERE id = ? AND user_id = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const { rows } = await db.query(`SELECT id FROM accounts WHERE id = ? AND ${accountIn("id", acc.all)}`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: "Account not found" });
 
     // ── Ein Endpunkt, zwei Ziele: Stammdaten ans Konto, ──────────────────────
@@ -170,9 +182,8 @@ router.patch("/:id", async (req, res, next) => {
 
     if (fields.length > 0) {
       await db.run(
-        // eslint-disable-next-line no-restricted-syntax -- Besitz-Spalte; das Sichtbarkeitsprädikat folgt in Phase B
-        `UPDATE accounts SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
-        [...values, id, req.user!.id]
+        `UPDATE accounts SET ${fields.join(", ")} WHERE id = ? AND ${accountIn("id", acc.all)}`,
+        [...values, id]
       );
     }
     if (memberFields.length > 0) {
@@ -194,6 +205,14 @@ router.delete("/:id", async (req, res, next) => {
     const { id } = req.params;
     const db = await getDb();
 
+    // Löschen ist Owner-Sache. Ein Mitglied darf alles Fachliche, aber nicht die
+    // Konto-Entität selbst.
+    const role = await myRole(db, id, req.user!.id);
+    if (role === null) return res.status(404).json({ error: "Account not found" });
+    if (role !== "owner") {
+      return res.status(403).json({ error: "Nur der Eigentümer kann dieses Konto löschen." });
+    }
+
     // Bewusst **ohne** Urheber-Filter: sonst zählt der Check die Fixkosten des
     // Partners nicht und lässt ein Konto löschen, an dem noch Daten hängen.
     const { rows: expRows } = await db.query(
@@ -209,8 +228,8 @@ router.delete("/:id", async (req, res, next) => {
       });
     }
 
-    // eslint-disable-next-line no-restricted-syntax -- Besitz-Spalte; Owner-Vorbehalt folgt in Phase B
-    const result = await db.run("DELETE FROM accounts WHERE id = ? AND user_id = ?", [id, req.user!.id]);
+    // Mitgliedschaften hängen per ON DELETE CASCADE daran.
+    const result = await db.run("DELETE FROM accounts WHERE id = ?", [id]);
     if (result.changes === 0) return res.status(404).json({ error: "Account not found" });
     res.json({ ok: true });
   } catch (err) {

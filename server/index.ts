@@ -20,6 +20,7 @@ import statsRouter from "./routes/stats";
 import templatesRouter from "./routes/templates";
 import exportRouter from "./routes/export";
 import goalsRouter from "./routes/goals";
+import membersRouter from "./routes/members";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -44,6 +45,8 @@ app.use("/api/stats", statsRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/export", exportRouter);
 app.use("/api/goals", goalsRouter);
+// Mitgliedschaften liegen unter /api/accounts/:id/members und /api/invitations
+app.use("/api", membersRouter);
 
 // ── Central error handler ────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

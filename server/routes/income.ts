@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { accountIn, visibleAccounts } from "../lib/visibility";
+import { checkAccountAndCategory } from "../lib/coupling";
 import { BOOL_PARAM } from "../db/sql";
 
 const router = Router();
@@ -19,6 +21,7 @@ const IncomePatchSchema = IncomeCreateSchema.partial();
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       `SELECT
          i.*,
@@ -26,9 +29,9 @@ router.get("/", async (req, res, next) => {
          a.color AS acc_color
        FROM income_sources i
        LEFT JOIN accounts a ON a.id = i.account_id
-       WHERE i.created_by = ?
+       WHERE ${accountIn("i.account_id", acc.all)}
        ORDER BY i.id`,
-      [req.user!.id]
+      []
     );
 
     res.json(
@@ -58,6 +61,9 @@ router.post("/", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const { label, amount, type, accountId, isActive, note } = parsed.data;
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
+    const coupling = await checkAccountAndCategory(db, req.user!.id, acc, accountId, null);
+    if (coupling) return res.status(400).json({ error: coupling });
     const result = await db.run(
       `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, created_by)
        VALUES (?, ?, ?, ?, ${BOOL_PARAM}, ?, ?)`,
@@ -78,7 +84,8 @@ router.patch("/:id", async (req, res, next) => {
     const { label, amount, type, accountId, isActive, note } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND created_by = ?", [id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const { rows } = await db.query(`SELECT id FROM income_sources WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: "Income not found" });
 
     const fields: string[] = [];
@@ -93,9 +100,14 @@ router.patch("/:id", async (req, res, next) => {
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
+    if (accountId !== undefined) {
+      const coupling = await checkAccountAndCategory(db, req.user!.id, acc, accountId, null);
+      if (coupling) return res.status(400).json({ error: coupling });
+    }
+
     await db.run(
-      `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
-      [...values, id, req.user!.id]
+      `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND ${accountIn("account_id", acc.all)}`,
+      [...values, id]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -107,7 +119,8 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM income_sources WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
+    const acc = await visibleAccounts(db, req.user!.id);
+    const result = await db.run(`DELETE FROM income_sources WHERE id = ? AND ${accountIn("account_id", acc.all)}`, [req.params.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Income not found" });
     res.json({ ok: true });
   } catch (err) {

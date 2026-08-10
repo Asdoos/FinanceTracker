@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { accountIn, transactionReadPredicate, visibleAccounts } from "../lib/visibility";
 
 const router = Router();
+
+const readPredicate = transactionReadPredicate("t");
 
 const escape = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
@@ -28,6 +31,7 @@ function toCsv(header: string, rows: any[][]): string {
 router.get("/transactions", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       `SELECT t.date, t.label, t.amount, t.type, t.note,
               c.name AS category, a.name AS account, ca.name AS counter_account
@@ -35,9 +39,9 @@ router.get("/transactions", async (req, res, next) => {
        LEFT JOIN categories c ON c.id = t.category_id
        LEFT JOIN accounts   a ON a.id = t.account_id
        LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
-       WHERE t.created_by = ?
+       WHERE ${readPredicate(acc.all)}
        ORDER BY t.date DESC`,
-      [req.user!.id]
+      []
     );
     const header = "Datum;Bezeichnung;Betrag;Typ;Kategorie;Konto;Gegenkonto;Notiz\n";
     const data = (rows as any[]).map((r) => [
@@ -56,15 +60,16 @@ router.get("/transactions", async (req, res, next) => {
 router.get("/expenses", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       `SELECT e.label, e.amount, e.type, e.is_active, e.note, e.end_date,
               c.name AS category, a.name AS account
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       WHERE e.created_by = ?
+       WHERE ${accountIn("e.account_id", acc.all)}
        ORDER BY e.label`,
-      [req.user!.id]
+      []
     );
     const header = "Bezeichnung;Betrag;Typ;Kategorie;Konto;Aktiv;Enddatum;Notiz\n";
     const data = (rows as any[]).map((r) => [
@@ -84,14 +89,15 @@ router.get("/expenses", async (req, res, next) => {
 router.get("/income", async (req, res, next) => {
   try {
     const db = await getDb();
+    const acc = await visibleAccounts(db, req.user!.id);
     const { rows } = await db.query(
       `SELECT i.label, i.amount, i.type, i.is_active, i.note,
               a.name AS account
        FROM income_sources i
        LEFT JOIN accounts a ON a.id = i.account_id
-       WHERE i.created_by = ?
+       WHERE ${accountIn("i.account_id", acc.all)}
        ORDER BY i.label`,
-      [req.user!.id]
+      []
     );
     const header = "Bezeichnung;Betrag;Typ;Konto;Aktiv;Notiz\n";
     const data = (rows as any[]).map((r) => [
