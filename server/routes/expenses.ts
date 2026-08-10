@@ -32,7 +32,7 @@ router.get("/", async (req, res, next) => {
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       WHERE e.user_id = ?
+       WHERE e.created_by = ?
        ORDER BY e.id`,
       [req.user!.id]
     );
@@ -84,7 +84,7 @@ router.post("/", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month, user_id)
+      `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month, created_by)
        VALUES (?, ?, ?, ?, ?, ${BOOL_PARAM}, ?, ?, ?, ?)`,
       [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, dueMonth ?? null, req.user!.id]
     );
@@ -103,7 +103,7 @@ router.patch("/:id", async (req, res, next) => {
     const { label, amount, type, categoryId, accountId, isActive, note, endDate, dueMonth } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND user_id = ?", [id, req.user!.id]);
+    const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND created_by = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Expense not found" });
 
     const fields: string[] = [];
@@ -122,7 +122,7 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      `UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
       [...values, id, req.user!.id]
     );
     res.json({ ok: true });
@@ -135,7 +135,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM expense_items WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
+    const result = await db.run("DELETE FROM expense_items WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Expense not found" });
     res.json({ ok: true });
   } catch (err) {

@@ -94,6 +94,7 @@ export async function requireAuth(
     const keyHash = hashApiKey(token);
     const db = await getDb();
     const { rows } = await db.query(
+      // eslint-disable-next-line no-restricted-syntax -- Auth-Tabelle (users/api_keys) — von der Konto-Sichtbarkeit unberührt
       `SELECT ak.user_id, u.email, u.is_admin
        FROM api_keys ak
        JOIN users u ON u.id = ak.user_id

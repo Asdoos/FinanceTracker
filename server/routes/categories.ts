@@ -16,6 +16,7 @@ const CategoryPatchSchema = CategoryCreateSchema.partial();
 router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
+    // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
     const { rows } = await db.query("SELECT * FROM categories WHERE user_id = ? ORDER BY id", [req.user!.id]);
     res.json(
       rows.map((r: any) => ({
@@ -39,6 +40,7 @@ router.post("/", async (req, res, next) => {
     const { name, color, icon, budget } = parsed.data;
     const db = await getDb();
     const result = await db.run(
+      // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
       "INSERT INTO categories (name, color, icon, budget_limit, user_id) VALUES (?, ?, ?, ?, ?)",
       [name, color, icon || null, budget ?? null, req.user!.id]
     );
@@ -57,6 +59,7 @@ router.patch("/:id", async (req, res, next) => {
     const { name, color, icon, budget } = parsed.data;
 
     const db = await getDb();
+    // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
     const { rows } = await db.query("SELECT id FROM categories WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Category not found" });
 
@@ -71,6 +74,7 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
+      // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
       `UPDATE categories SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
       [...values, id, req.user!.id]
     );
@@ -106,6 +110,7 @@ router.delete("/:id", async (req, res, next) => {
       });
     }
 
+    // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
     const result = await db.run("DELETE FROM categories WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Category not found" });
     res.json({ ok: true });

@@ -114,16 +114,27 @@ function backupBeforeMigration(db: Database.Database, dbPath: string, version: n
   console.log(`[DB] Backup vor Migration ${version} angelegt: ${target}`);
 }
 
-function runSqliteMigrations(db: Database.Database, dbPath: string): void {
+/**
+ * Aktueller Schema-Stand. Legt die Versionstabelle an, falls sie fehlt.
+ *
+ * Wird **vor** der Prä-Versions-Präambel gebraucht: die darf nur laufen, solange
+ * die Datenbank auf Version 0 steht. Ab Version 1 hat sie ihre Wirkung längst
+ * getan, und spätere Schritte dürfen ihr widersprechen — Schritt 6 droppt
+ * `accounts.freibetrag`, das die Präambel sonst beim nächsten Start wieder anlegte.
+ */
+function currentVersion(db: Database.Database): number {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
-
   const { v } = db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations").get() as { v: number };
-  const pending = pendingMigrations(Number(v));
+  return Number(v);
+}
+
+function runSqliteMigrations(db: Database.Database, dbPath: string, version: number): void {
+  const pending = pendingMigrations(version);
   if (pending.length === 0) return;
 
   backupBeforeMigration(db, dbPath, pending[0].version);
@@ -171,40 +182,50 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
 
+  const version = currentVersion(db);
+
   // ── Prä-Versions-Präambel (Bestand = Version 0) ──
   // Diese Zeilen sind der Zustand vor dem Migrationssystem. Sie bleiben stehen und
-  // laufen weiter *vor* Schritt 1; nichts wird rückwirkend rekonstruiert. Neue
+  // laufen *vor* Schritt 1; nichts wird rückwirkend rekonstruiert. Neue
   // Schemaänderungen gehören ausschließlich nach `migrations.ts`.
-  try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag REAL DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag_year INTEGER DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE categories ADD COLUMN budget_limit REAL DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN interest_rate REAL DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance REAL DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE accounts ADD COLUMN interest_interval TEXT DEFAULT NULL"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE expense_items ADD COLUMN due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+  //
+  // **Nur auf Version 0.** Ab Version 1 hat die Präambel ihre Wirkung getan (sie
+  // lief im selben Start, der Schritt 1 gesetzt hat), und spätere Schritte dürfen
+  // ihr widersprechen: Schritt 6 droppt `accounts.freibetrag`, das die Präambel
+  // sonst beim nächsten Start stillschweigend wieder anlegte — und auf Postgres
+  // nicht, womit die Drift zurück wäre, die Schritt 1 gerade eingeebnet hat.
+  if (version === 0) {
+    try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag REAL DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag_year INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE categories ADD COLUMN budget_limit REAL DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN interest_rate REAL DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance REAL DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN actual_balance_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE accounts ADD COLUMN interest_interval TEXT DEFAULT NULL"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE expense_items ADD COLUMN due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
 
-  // Multi-user migrations
-  try { db.exec("ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE categories ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE expense_items ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE income_sources ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE transactions ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE transaction_templates ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE goals ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    // Multi-user migrations
+    try { db.exec("ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE categories ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE expense_items ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE income_sources ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE transactions ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE transaction_templates ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE goals ADD COLUMN user_id INTEGER REFERENCES users(id)"); } catch { /* already exists */ }
 
-  // Indexes for user_id columns
-  try { db.exec("CREATE INDEX idx_accounts_user ON accounts(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_categories_user ON categories(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_expense_items_user ON expense_items(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_income_sources_user ON income_sources(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_transactions_user ON transactions(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* already exists */ }
-  try { db.exec("CREATE INDEX idx_goals_user ON goals(user_id)"); } catch { /* already exists */ }
+    // Indexes for user_id columns
+    try { db.exec("CREATE INDEX idx_accounts_user ON accounts(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_categories_user ON categories(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_expense_items_user ON expense_items(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_income_sources_user ON income_sources(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_transactions_user ON transactions(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* already exists */ }
+    try { db.exec("CREATE INDEX idx_goals_user ON goals(user_id)"); } catch { /* already exists */ }
+  }
 
-  runSqliteMigrations(db, resolvedPath);
+  runSqliteMigrations(db, resolvedPath, version);
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

@@ -26,7 +26,7 @@ router.get("/", async (req, res, next) => {
     // Übertragungen fallen auf SQL-Ebene heraus. Der `else`-Zweig unten machte
     // bisher alles Unbekannte zur Ausgabe — ein Transfer wäre dort stillschweigend
     // gelandet.
-    let monthlyWhere = `WHERE user_id = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
+    let monthlyWhere = `WHERE created_by = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
     if (cutoff) {
       monthlyWhere += " AND date >= ?";
       monthlyParams.push(cutoff);
@@ -62,7 +62,7 @@ router.get("/", async (req, res, next) => {
 
     // ── 2. Category breakdown (expenses only) ──────────────────────────
     const catParams: any[] = [userId];
-    let catWhere = "WHERE t.type = 'expense' AND t.user_id = ?";
+    let catWhere = "WHERE t.type = 'expense' AND t.created_by = ?";
     if (cutoff) {
       catWhere += " AND t.date >= ?";
       catParams.push(cutoff);
@@ -94,11 +94,11 @@ router.get("/", async (req, res, next) => {
     // ── Recurring monthly baseline ───────────────────────────────────────
     const today = new Date().toISOString().slice(0, 10);
     const { rows: recurExp } = await db.query(
-      `SELECT amount, type FROM expense_items WHERE user_id = ? AND is_active AND (end_date IS NULL OR end_date >= ?)`,
+      `SELECT amount, type FROM expense_items WHERE created_by = ? AND is_active AND (end_date IS NULL OR end_date >= ?)`,
       [userId, today]
     );
     const { rows: recurInc } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active`,
+      `SELECT amount, type FROM income_sources WHERE created_by = ? AND is_active`,
       [userId]
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
@@ -131,7 +131,7 @@ router.get("/budget-comparison", async (req, res, next) => {
     const { rows: txRows } = await db.query(
       `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
        FROM transactions
-       WHERE user_id = ? AND substr(date, 1, 7) >= ? AND ${EXCLUDE_TRANSFERS_SQL}
+       WHERE created_by = ? AND substr(date, 1, 7) >= ? AND ${EXCLUDE_TRANSFERS_SQL}
        GROUP BY substr(date, 1, 7), type`,
       [userId, monthList[0]]
     );
@@ -146,11 +146,11 @@ router.get("/budget-comparison", async (req, res, next) => {
 
     // Planned totals from recurring items (active, respecting end_date per month)
     const { rows: expItems } = await db.query(
-      `SELECT amount, type, end_date FROM expense_items WHERE user_id = ? AND is_active`,
+      `SELECT amount, type, end_date FROM expense_items WHERE created_by = ? AND is_active`,
       [userId]
     );
     const { rows: incItems } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active`,
+      `SELECT amount, type FROM income_sources WHERE created_by = ? AND is_active`,
       [userId]
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;

@@ -59,6 +59,7 @@ async function resolveAccounts(
   // Beide Konten müssen dem Nutzer gehören (in v0.26 wird daraus „beide im
   // Sichtbarkeitsraum").
   const { rows } = await db.query(
+    // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
     "SELECT id FROM accounts WHERE user_id = ? AND (id = ? OR id = ?)",
     [userId, accountId, counterAccountId]
   );
@@ -122,7 +123,7 @@ router.get("/", async (req, res, next) => {
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts   a ON a.id = t.account_id
       LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
-      WHERE t.user_id = ?
+      WHERE t.created_by = ?
     `;
     const params: any[] = [req.user!.id];
 
@@ -152,6 +153,7 @@ router.get("/", async (req, res, next) => {
     const gaplessStatement = accountId !== null && !isNaN(accountId) && !type && !month;
     if (gaplessStatement) {
       const { rows: accRows } = await db.query(
+        // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
         "SELECT actual_balance, actual_balance_date FROM accounts WHERE id = ? AND user_id = ?",
         [accountId, req.user!.id]
       );
@@ -211,7 +213,7 @@ router.post("/", async (req, res, next) => {
     if ("error" in resolved) return res.status(400).json({ error: resolved.error });
 
     const result = await db.run(
-      `INSERT INTO transactions (date, label, amount, type, category_id, account_id, counter_account_id, note, user_id)
+      `INSERT INTO transactions (date, label, amount, type, category_id, account_id, counter_account_id, note, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [date, label, amount, type, resolved.categoryId, accountId, resolved.counterAccountId, note || null, req.user!.id]
     );
@@ -230,7 +232,7 @@ router.patch("/:id", async (req, res, next) => {
     const { date, label, amount, type, categoryId, accountId, counterAccountId, note } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT * FROM transactions WHERE id = ? AND user_id = ?", [id, req.user!.id]);
+    const { rows } = await db.query("SELECT * FROM transactions WHERE id = ? AND created_by = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
     const current = rows[0];
 
@@ -260,7 +262,7 @@ router.patch("/:id", async (req, res, next) => {
     fields.push("counter_account_id = ?"); values.push(resolved.counterAccountId);
 
     await db.run(
-      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      `UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
       [...values, id, req.user!.id]
     );
     res.json({ ok: true });
@@ -273,7 +275,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM transactions WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
+    const result = await db.run("DELETE FROM transactions WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Transaction not found" });
     res.json({ ok: true });
   } catch (err) {

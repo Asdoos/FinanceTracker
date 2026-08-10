@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { getDb } from "../db";
 import { EXCLUDE_TRANSFERS_SQL, signedAmount } from "../lib/transactions";
+import { MEMBERSHIP_FIELDS } from "../lib/members";
 
 const router = Router();
 
@@ -13,15 +14,25 @@ router.get("/", async (req, res, next) => {
     const db = await getDb();
     const userId = req.user!.id;
 
-    const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE user_id = ?", [userId]);
-    const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE user_id = ?", [userId]);
-    const { rows: accounts } = await db.query("SELECT * FROM accounts WHERE user_id = ?", [userId]);
+    const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE created_by = ?", [userId]);
+    const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE created_by = ?", [userId]);
+    // Freibetrag und Default-Markierung stehen seit v0.26 an *meiner*
+    // Mitgliedschaft, nicht mehr am Konto — flach mitgelesen.
+    const { rows: accounts } = await db.query(
+      // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist hier der Mitgliedsbezug selbst, nicht der weggefallene Sichtbarkeitszweig
+      `SELECT a.*, ${MEMBERSHIP_FIELDS}
+       FROM accounts a
+       LEFT JOIN account_members m ON m.account_id = a.id AND m.user_id = ?
+       WHERE a.user_id = ?`,
+      [userId, userId]
+    );
+    // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
     const { rows: categories } = await db.query("SELECT * FROM categories WHERE user_id = ?", [userId]);
 
     // ── Current-month transaction sums ──
     const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
     const { rows: txRows } = await db.query(
-      `SELECT type, SUM(amount) AS total FROM transactions WHERE user_id = ? AND date LIKE ? AND ${EXCLUDE_TRANSFERS_SQL} GROUP BY type`,
+      `SELECT type, SUM(amount) AS total FROM transactions WHERE created_by = ? AND date LIKE ? AND ${EXCLUDE_TRANSFERS_SQL} GROUP BY type`,
       [userId, `${currentMonth}-%`]
     );
 
@@ -29,7 +40,7 @@ router.get("/", async (req, res, next) => {
     // `counter_account_id` gehört zwingend dazu: ohne diese Spalte wäre der Zufluss
     // einer Übertragung auf dem Zielkonto unsichtbar und dessen Saldo dauerhaft falsch.
     const { rows: allTxRows } = await db.query(
-      "SELECT account_id, counter_account_id, date, type, amount FROM transactions WHERE user_id = ?",
+      "SELECT account_id, counter_account_id, date, type, amount FROM transactions WHERE created_by = ?",
       [userId]
     );
     const byType = (t: string) => txRows.find((r: any) => r.type === t)?.total ?? 0;
@@ -86,8 +97,8 @@ router.get("/", async (req, res, next) => {
         (sum: number, i: any) => sum + toMonthly(i.amount, i.type), 0
       );
 
-      const fb = account.freibetrag ?? 0;
-      const fbActive = fb > 0 && (account.freibetrag_year === null || account.freibetrag_year >= currentYear);
+      const fb = account.member_freibetrag ?? 0;
+      const fbActive = fb > 0 && (account.member_freibetrag_year == null || account.member_freibetrag_year >= currentYear);
       const freibetragMonthly = fbActive ? fb / 12 : 0;
 
       // ── Balance tracking ──
@@ -120,9 +131,9 @@ router.get("/", async (req, res, next) => {
           name: account.name,
           color: account.color,
           description: account.description || undefined,
-          isDefault: !!account.is_default,
-          freibetrag: account.freibetrag ?? null,
-          freibetragYear: account.freibetrag_year ?? null,
+          isDefault: !!account.member_is_default,
+          freibetrag: account.member_freibetrag ?? null,
+          freibetragYear: account.member_freibetrag_year ?? null,
         },
         monthlyExpenses,
         monthlyIncome,
@@ -142,7 +153,7 @@ router.get("/", async (req, res, next) => {
     const { rows: catTxRows } = await db.query(
       `SELECT category_id, SUM(amount) AS total
        FROM transactions
-       WHERE user_id = ? AND type = 'expense' AND date LIKE ?
+       WHERE created_by = ? AND type = 'expense' AND date LIKE ?
        GROUP BY category_id`,
       [userId, `${currentMonth}-%`]
     );

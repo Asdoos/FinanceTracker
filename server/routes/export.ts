@@ -35,7 +35,7 @@ router.get("/transactions", async (req, res, next) => {
        LEFT JOIN categories c ON c.id = t.category_id
        LEFT JOIN accounts   a ON a.id = t.account_id
        LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
-       WHERE t.user_id = ?
+       WHERE t.created_by = ?
        ORDER BY t.date DESC`,
       [req.user!.id]
     );
@@ -62,7 +62,7 @@ router.get("/expenses", async (req, res, next) => {
        FROM expense_items e
        LEFT JOIN categories c ON c.id = e.category_id
        LEFT JOIN accounts   a ON a.id = e.account_id
-       WHERE e.user_id = ?
+       WHERE e.created_by = ?
        ORDER BY e.label`,
       [req.user!.id]
     );
@@ -89,7 +89,7 @@ router.get("/income", async (req, res, next) => {
               a.name AS account
        FROM income_sources i
        LEFT JOIN accounts a ON a.id = i.account_id
-       WHERE i.user_id = ?
+       WHERE i.created_by = ?
        ORDER BY i.label`,
       [req.user!.id]
     );

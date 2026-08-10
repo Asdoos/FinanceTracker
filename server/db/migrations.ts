@@ -95,6 +95,163 @@ export const MIGRATIONS: MigrationStep[] = [
       "CREATE INDEX IF NOT EXISTS idx_transactions_counter_account ON transactions(counter_account_id)",
     ],
   },
+
+  {
+    version: 3,
+    name: "account_members anlegen und befüllen",
+    // Die Owner-Mitgliedschaft ist eine **Invariante, kein einmaliger Backfill**:
+    // sie wird an allen drei Stellen hergestellt, an denen ein Konto eine user_id
+    // bekommt (POST /api/accounts, dieser Schritt, die Setup-Route). Ohne die
+    // Invariante verliert eine Installation aus der Vor-Auth-Zeit beim Upgrade
+    // sämtliche Konten unsichtbar: der Backfill trifft nichts, die Versionsmarke
+    // wird trotzdem gesetzt, und das spätere Setup erzeugt keine Zeilen.
+    sqlite: [
+      `CREATE TABLE account_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        status TEXT NOT NULL CHECK (status IN ('pending', 'active')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      "CREATE INDEX idx_account_members_account ON account_members(account_id)",
+      "CREATE INDEX idx_account_members_user ON account_members(user_id)",
+      "CREATE UNIQUE INDEX idx_account_members_pair ON account_members(account_id, user_id)",
+      `INSERT INTO account_members (account_id, user_id, role, status)
+         SELECT id, user_id, 'owner', 'active' FROM accounts WHERE user_id IS NOT NULL`,
+    ],
+    postgres: [
+      `CREATE TABLE account_members (
+        id SERIAL PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        status TEXT NOT NULL CHECK (status IN ('pending', 'active')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+      "CREATE INDEX idx_account_members_account ON account_members(account_id)",
+      "CREATE INDEX idx_account_members_user ON account_members(user_id)",
+      "CREATE UNIQUE INDEX idx_account_members_pair ON account_members(account_id, user_id)",
+      `INSERT INTO account_members (account_id, user_id, role, status)
+         SELECT id, user_id, 'owner', 'active' FROM accounts WHERE user_id IS NOT NULL`,
+    ],
+  },
+
+  {
+    version: 4,
+    name: "categories: Konto-Bindung und Budget-Urheber",
+    // Kein Backfill: alle heutigen Kategorien sind persönlich und bleiben NULL.
+    // `budget_set_by`/`budget_set_at` speisen die Spalte „gesetzt von" der
+    // Kategorien-Tabelle; Bestandszeilen bleiben leer.
+    sqlite: [
+      "ALTER TABLE categories ADD COLUMN account_id INTEGER REFERENCES accounts(id)",
+      "ALTER TABLE categories ADD COLUMN budget_set_by INTEGER REFERENCES users(id)",
+      "ALTER TABLE categories ADD COLUMN budget_set_at TEXT DEFAULT NULL",
+      "CREATE INDEX idx_categories_account ON categories(account_id)",
+    ],
+    postgres: [
+      "ALTER TABLE categories ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES accounts(id)",
+      "ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_set_by INTEGER REFERENCES users(id)",
+      "ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_set_at TIMESTAMPTZ DEFAULT NULL",
+      "CREATE INDEX IF NOT EXISTS idx_categories_account ON categories(account_id)",
+    ],
+  },
+
+  {
+    version: 5,
+    name: "accounts: Saldo-Urheber und is_shared",
+    // `actual_balance_by` bleibt bei Bestandsdaten NULL — die UI trägt
+    // „abgeglichen, aber unbekannt von wem". `is_shared` steuert den
+    // Dashboard-Block, **nicht** die Sichtbarkeit; die kommt aus account_members.
+    sqlite: [
+      "ALTER TABLE accounts ADD COLUMN actual_balance_by INTEGER REFERENCES users(id)",
+      "ALTER TABLE accounts ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0",
+    ],
+    postgres: [
+      "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_by INTEGER REFERENCES users(id)",
+      "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT FALSE",
+    ],
+  },
+
+  {
+    version: 6,
+    name: "Stammdaten in die Mitgliedschaft umziehen",
+    // Zwingend nach Schritt 3 — sonst gibt es keine Zielzeile.
+    //
+    // `is_default` wird beim Umzug **aufgeräumt, nicht blind kopiert**: je Nutzer
+    // gewinnt die niedrigste Konto-ID. Wer keines hat, bekommt keines — die
+    // Invariante ist „höchstens eines". Das Aufräumen ist Voraussetzung für den
+    // partiellen Unique-Index, der sonst die Migration korrekt abbrechen würde.
+    // Der Index existiert, weil eine Regel, die nur in der Route steht, genau die
+    // Sorte Regel ist, die den heutigen Bug erzeugt hat.
+    sqlite: [
+      "ALTER TABLE account_members ADD COLUMN freibetrag REAL DEFAULT NULL",
+      "ALTER TABLE account_members ADD COLUMN freibetrag_year INTEGER DEFAULT NULL",
+      "ALTER TABLE account_members ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+      `UPDATE account_members SET
+         freibetrag = (SELECT a.freibetrag FROM accounts a WHERE a.id = account_members.account_id),
+         freibetrag_year = (SELECT a.freibetrag_year FROM accounts a WHERE a.id = account_members.account_id)
+       WHERE role = 'owner'`,
+      `UPDATE account_members SET is_default = 1
+       WHERE (user_id, account_id) IN (
+         SELECT am.user_id, MIN(am.account_id)
+         FROM account_members am
+         JOIN accounts a ON a.id = am.account_id
+         WHERE a.is_default = 1
+         GROUP BY am.user_id
+       )`,
+      "ALTER TABLE accounts DROP COLUMN freibetrag",
+      "ALTER TABLE accounts DROP COLUMN freibetrag_year",
+      "ALTER TABLE accounts DROP COLUMN is_default",
+      "CREATE UNIQUE INDEX idx_account_members_default ON account_members(user_id) WHERE is_default = 1",
+    ],
+    postgres: [
+      "ALTER TABLE account_members ADD COLUMN IF NOT EXISTS freibetrag DOUBLE PRECISION DEFAULT NULL",
+      "ALTER TABLE account_members ADD COLUMN IF NOT EXISTS freibetrag_year INTEGER DEFAULT NULL",
+      "ALTER TABLE account_members ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE",
+      `UPDATE account_members SET
+         freibetrag = a.freibetrag,
+         freibetrag_year = a.freibetrag_year
+       FROM accounts a WHERE a.id = account_members.account_id AND account_members.role = 'owner'`,
+      `UPDATE account_members SET is_default = TRUE
+       WHERE (user_id, account_id) IN (
+         SELECT am.user_id, MIN(am.account_id)
+         FROM account_members am
+         JOIN accounts a ON a.id = am.account_id
+         WHERE a.is_default
+         GROUP BY am.user_id
+       )`,
+      "ALTER TABLE accounts DROP COLUMN freibetrag",
+      "ALTER TABLE accounts DROP COLUMN freibetrag_year",
+      "ALTER TABLE accounts DROP COLUMN is_default",
+      "CREATE UNIQUE INDEX idx_account_members_default ON account_members(user_id) WHERE is_default",
+    ],
+  },
+
+  {
+    version: 7,
+    name: "user_id zu created_by umbenennen",
+    // Der eigentliche Leck-Schutz, weil er die Fehlerklasse umdreht: eine
+    // vergessene Stelle mit `WHERE user_id = ?` ist danach ein **SQL-Fehler**
+    // statt einer Query, die still die falschen Zeilen liefert.
+    //
+    // `accounts`, `categories` und `goals` behalten **absichtlich** `user_id` —
+    // dort bedeutet die Spalte echten Besitz bzw. ist Sichtbarkeitsschlüssel für
+    // den NULL-Zweig des hybriden Prädikats. Die Uneinheitlichkeit ist gewollt
+    // und in CLAUDE.md dokumentiert.
+    sqlite: [
+      "ALTER TABLE expense_items RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE income_sources RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE transactions RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE transaction_templates RENAME COLUMN user_id TO created_by",
+    ],
+    postgres: [
+      "ALTER TABLE expense_items RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE income_sources RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE transactions RENAME COLUMN user_id TO created_by",
+      "ALTER TABLE transaction_templates RENAME COLUMN user_id TO created_by",
+    ],
+  },
 ];
 
 /** Höchste bekannte Zielversion — für Log- und Backup-Namen. */

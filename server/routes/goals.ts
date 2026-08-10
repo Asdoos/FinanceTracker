@@ -20,6 +20,7 @@ router.get("/", async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
+      // eslint-disable-next-line no-restricted-syntax -- goals: hybrides Prädikat wie bei categories — user_id trägt den NULL-Zweig
       `SELECT g.*, a.name AS acc_name, a.color AS acc_color
        FROM goals g
        LEFT JOIN accounts a ON a.id = g.account_id
@@ -53,6 +54,7 @@ router.post("/", async (req, res, next) => {
     const { name, targetAmount, currentAmount, color, dueDate, accountId, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
+      // eslint-disable-next-line no-restricted-syntax -- goals: hybrides Prädikat wie bei categories — user_id trägt den NULL-Zweig
       `INSERT INTO goals (name, target_amount, current_amount, color, due_date, account_id, note, user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, targetAmount, currentAmount ?? 0, color ?? "#3b82f6", dueDate ?? null, accountId ?? null, note ?? null, req.user!.id]
@@ -71,6 +73,7 @@ router.patch("/:id", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
     const db = await getDb();
+    // eslint-disable-next-line no-restricted-syntax -- goals: hybrides Prädikat wie bei categories — user_id trägt den NULL-Zweig
     const { rows } = await db.query("SELECT id FROM goals WHERE id = ? AND user_id = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Goal not found" });
 
@@ -88,6 +91,7 @@ router.patch("/:id", async (req, res, next) => {
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
+    // eslint-disable-next-line no-restricted-syntax -- goals: hybrides Prädikat wie bei categories — user_id trägt den NULL-Zweig
     await db.run(`UPDATE goals SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, req.user!.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -99,6 +103,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
+    // eslint-disable-next-line no-restricted-syntax -- goals: hybrides Prädikat wie bei categories — user_id trägt den NULL-Zweig
     const result = await db.run("DELETE FROM goals WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Goal not found" });
     res.json({ ok: true });

@@ -96,16 +96,25 @@ const SCHEMA = `
   );
 `;
 
-async function runPostgresMigrations(client: pg.PoolClient): Promise<void> {
+/**
+ * Aktueller Schema-Stand. Legt die Versionstabelle an, falls sie fehlt.
+ *
+ * Wird **vor** der Prä-Versions-Präambel gebraucht: die darf nur auf Version 0
+ * laufen, weil spätere Schritte ihr widersprechen dürfen.
+ */
+async function currentVersion(client: pg.PoolClient): Promise<number> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-
   const { rows } = await client.query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations");
-  const pending = pendingMigrations(Number(rows[0].v));
+  return Number(rows[0].v);
+}
+
+async function runPostgresMigrations(client: pg.PoolClient, version: number): Promise<void> {
+  const pending = pendingMigrations(version);
   if (pending.length === 0) return;
 
   // Auf PostgreSQL gibt es kein automatisches Datei-Backup — der Hinweis auf
@@ -145,35 +154,41 @@ export async function createPostgresAdapter(
   const client = await pool.connect();
   try {
     await client.query(SCHEMA);
-    // ── Prä-Versions-Präambel (Bestand = Version 0) ──
-    // Zustand vor dem Migrationssystem. Bleibt stehen, läuft weiter *vor* Schritt 1.
-    // Neue Schemaänderungen gehören ausschließlich nach `migrations.ts`.
-    try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
-    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
-    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
-    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
-    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_date DATE DEFAULT NULL"); } catch { /* already exists */ }
-    try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
+    const version = await currentVersion(client);
 
-    // Multi-user migrations
-    try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE income_sources ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE transaction_templates ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
-    try { await client.query("ALTER TABLE goals ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+    // **Nur auf Version 0** — spätere Schritte dürfen der Präambel widersprechen
+    // (Schritt 6 droppt accounts.freibetrag).
+    if (version === 0) {
+      // ── Prä-Versions-Präambel (Bestand = Version 0) ──
+      // Zustand vor dem Migrationssystem. Bleibt stehen, läuft weiter *vor* Schritt 1.
+      // Neue Schemaänderungen gehören ausschließlich nach `migrations.ts`.
+      try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+      try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+      try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
+      try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
+      try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS actual_balance_date DATE DEFAULT NULL"); } catch { /* already exists */ }
+      try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS due_month INTEGER DEFAULT NULL"); } catch { /* already exists */ }
 
-    // Indexes
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_expense_items_user ON expense_items(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_income_sources_user ON income_sources(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* ignore */ }
-    try { await client.query("CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id)"); } catch { /* ignore */ }
+      // Multi-user migrations
+      try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE expense_items ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE income_sources ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE transaction_templates ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
+      try { await client.query("ALTER TABLE goals ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"); } catch { /* ignore */ }
 
-    await runPostgresMigrations(client);
+      // Indexes
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_expense_items_user ON expense_items(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_income_sources_user ON income_sources(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* ignore */ }
+      try { await client.query("CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id)"); } catch { /* ignore */ }
+    }
+
+    await runPostgresMigrations(client, version);
 
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {

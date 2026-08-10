@@ -3,7 +3,8 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { getDb } from "../db";
 import { BOOL_PARAM } from "../db/sql";
-import { migrateOrphanedData } from "../db/migrate";
+import { migrateOrphanedData, USER_COLUMNS } from "../db/migrate";
+import { ensureOwnerMembershipsForUser } from "../lib/members";
 import {
   signAccessToken,
   signRefreshToken,
@@ -92,14 +93,22 @@ router.post("/setup", async (req, res, next) => {
     // Migrate orphaned data from single-user era
     const migration = await migrateOrphanedData(db, userId);
 
+    // Dritte Stelle der Owner-Invariante: die gerade adoptierten Konten brauchen
+    // ihre Mitgliedschaftszeile, sonst wären sie nach dem Prädikat-Umbau
+    // unsichtbar — genau der Vor-Auth-Fall, den der Migrationsschritt nicht
+    // erreichen kann, weil es beim Start noch keinen Nutzer gab.
+    await ensureOwnerMembershipsForUser(db, userId);
+
     // Create starter categories if user has none after migration
     const { rows: catCount } = await db.query(
+      // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
       "SELECT COUNT(*) as count FROM categories WHERE user_id = ?",
       [userId]
     );
     if (Number(catCount[0].count) === 0) {
       for (const cat of STARTER_CATEGORIES) {
         await db.run(
+          // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
           "INSERT INTO categories (name, color, icon, user_id) VALUES (?, ?, ?, ?)",
           [cat.name, cat.color, cat.icon, userId]
         );
@@ -311,6 +320,7 @@ router.post("/users", requireAuth, requireAdmin, async (req, res, next) => {
     // Create starter categories for new user
     for (const cat of STARTER_CATEGORIES) {
       await db.run(
+        // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
         "INSERT INTO categories (name, color, icon, user_id) VALUES (?, ?, ?, ?)",
         [cat.name, cat.color, cat.icon, userId]
       );
@@ -408,17 +418,10 @@ router.delete(
         return;
       }
 
-      // Cascade: delete user's data
-      for (const table of [
-        "expense_items",
-        "income_sources",
-        "transactions",
-        "transaction_templates",
-        "goals",
-        "accounts",
-        "categories",
-      ]) {
-        await db.run(`DELETE FROM ${table} WHERE user_id = ?`, [id]);
+      // Cascade: delete user's data. Die Spalte heißt je Tabelle anders — siehe
+      // USER_COLUMNS und CLAUDE.md.
+      for (const [table, column] of Object.entries(USER_COLUMNS)) {
+        await db.run(`DELETE FROM ${table} WHERE ${column} = ?`, [id]);
       }
 
       res.json({ ok: true });
@@ -437,6 +440,7 @@ router.get("/api-keys", requireAuth, async (req, res, next) => {
   try {
     const db = await getDb();
     const { rows } = await db.query(
+      // eslint-disable-next-line no-restricted-syntax -- Auth-Tabelle (users/api_keys) — von der Konto-Sichtbarkeit unberührt
       "SELECT id, label, created_at FROM api_keys WHERE user_id = ? ORDER BY id",
       [req.user!.id]
     );
@@ -471,6 +475,7 @@ router.post("/api-keys", requireAuth, async (req, res, next) => {
 
     const db = await getDb();
     const result = await db.run(
+      // eslint-disable-next-line no-restricted-syntax -- Auth-Tabelle (users/api_keys) — von der Konto-Sichtbarkeit unberührt
       "INSERT INTO api_keys (user_id, key_hash, label) VALUES (?, ?, ?)",
       [req.user!.id, keyHash, label]
     );
@@ -487,6 +492,7 @@ router.delete("/api-keys/:id", requireAuth, async (req, res, next) => {
   try {
     const db = await getDb();
     const result = await db.run(
+      // eslint-disable-next-line no-restricted-syntax -- Auth-Tabelle (users/api_keys) — von der Konto-Sichtbarkeit unberührt
       "DELETE FROM api_keys WHERE id = ? AND user_id = ?",
       [req.params.id, req.user!.id]
     );

@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { getDb } from "./db";
 import { BOOL_PARAM } from "./db/sql";
 import { EXCLUDE_TRANSFERS_SQL, signedAmount } from "./lib/transactions";
+import { MEMBERSHIP_FIELDS } from "./lib/members";
 
 const sessions = new Map<string, SSEServerTransport>();
 
@@ -44,9 +45,14 @@ function buildServer(userId: number): McpServer {
     async () => {
       try {
         const db = await getDb();
-        const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE user_id = ?", [userId]);
-        const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE user_id = ?", [userId]);
-        const { rows: accounts } = await db.query("SELECT * FROM accounts WHERE user_id = ?", [userId]);
+        const { rows: expenses } = await db.query("SELECT * FROM expense_items WHERE created_by = ?", [userId]);
+        const { rows: incomes } = await db.query("SELECT * FROM income_sources WHERE created_by = ?", [userId]);
+        // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist hier der Mitgliedsbezug selbst, nicht der weggefallene Sichtbarkeitszweig
+        const { rows: accounts } = await db.query(`SELECT a.*, ${MEMBERSHIP_FIELDS}
+           FROM accounts a
+           LEFT JOIN account_members m ON m.account_id = a.id AND m.user_id = ?
+           WHERE a.user_id = ?`, [userId, userId]);
+        // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
         const { rows: categories } = await db.query("SELECT * FROM categories WHERE user_id = ?", [userId]);
 
         const accMap = Object.fromEntries(accounts.map((a: any) => [a.id, a]));
@@ -71,14 +77,14 @@ function buildServer(userId: number): McpServer {
           const accInc = activeIncomes.filter((i: any) => i.account_id === account.id);
           const monthlyExpenses = accExp.reduce((s: number, e: any) => s + toMonthly(e.amount, e.type), 0);
           const monthlyIncome = accInc.reduce((s: number, i: any) => s + toMonthly(i.amount, i.type), 0);
-          const fb = account.freibetrag ?? 0;
-          const fbActive = fb > 0 && (account.freibetrag_year === null || account.freibetrag_year >= currentYear);
+          const fb = account.member_freibetrag ?? 0;
+          const fbActive = fb > 0 && (account.member_freibetrag_year == null || account.member_freibetrag_year >= currentYear);
           return {
             account: {
               id: account.id, name: account.name, color: account.color,
-              isDefault: !!account.is_default,
-              freibetrag: account.freibetrag ?? null,
-              freibetragYear: account.freibetrag_year ?? null,
+              isDefault: !!account.member_is_default,
+              freibetrag: account.member_freibetrag ?? null,
+              freibetragYear: account.member_freibetrag_year ?? null,
             },
             monthlyExpenses, monthlyIncome,
             rest: monthlyIncome - monthlyExpenses,
@@ -140,7 +146,7 @@ function buildServer(userId: number): McpServer {
            FROM expense_items e
            LEFT JOIN categories c ON c.id = e.category_id
            LEFT JOIN accounts   a ON a.id = e.account_id
-           WHERE e.user_id = ?
+           WHERE e.created_by = ?
            ORDER BY e.id`,
           [userId]
         );
@@ -182,7 +188,7 @@ function buildServer(userId: number): McpServer {
           `SELECT i.*, a.name AS acc_name, a.color AS acc_color
            FROM income_sources i
            LEFT JOIN accounts a ON a.id = i.account_id
-           WHERE i.user_id = ?
+           WHERE i.created_by = ?
            ORDER BY i.id`,
           [userId]
         );
@@ -204,11 +210,15 @@ function buildServer(userId: number): McpServer {
   server.tool("list_accounts", "List all accounts", async () => {
     try {
       const db = await getDb();
-      const { rows } = await db.query("SELECT * FROM accounts WHERE user_id = ? ORDER BY id", [userId]);
+      // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist hier der Mitgliedsbezug selbst, nicht der weggefallene Sichtbarkeitszweig
+      const { rows } = await db.query(`SELECT a.*, ${MEMBERSHIP_FIELDS}
+         FROM accounts a
+         LEFT JOIN account_members m ON m.account_id = a.id AND m.user_id = ?
+         WHERE a.user_id = ? ORDER BY a.id`, [userId, userId]);
       const result = rows.map((r: any) => ({
         id: r.id, name: r.name, color: r.color,
-        description: r.description || null, isDefault: !!r.is_default,
-        freibetrag: r.freibetrag ?? null, freibetragYear: r.freibetrag_year ?? null,
+        description: r.description || null, isDefault: !!r.member_is_default,
+        freibetrag: r.member_freibetrag ?? null, freibetragYear: r.member_freibetrag_year ?? null,
         interestRate: r.interest_rate ?? null, interestRateUntil: r.interest_rate_until ?? null,
       }));
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
@@ -221,6 +231,7 @@ function buildServer(userId: number): McpServer {
   server.tool("list_categories", "List all categories with budget info", async () => {
     try {
       const db = await getDb();
+      // eslint-disable-next-line no-restricted-syntax -- categories: user_id ist der Sichtbarkeitsschlüssel des NULL-Zweigs (persönliche Kategorien haben kein Konto)
       const { rows } = await db.query("SELECT * FROM categories WHERE user_id = ? ORDER BY id", [userId]);
       const result = rows.map((r: any) => ({
         id: r.id, name: r.name, color: r.color, icon: r.icon || null, budget: r.budget_limit ?? null,
@@ -249,7 +260,7 @@ function buildServer(userId: number): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, user_id)
+          `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, created_by)
            VALUES (?, ?, ?, ?, ?, ${BOOL_PARAM}, ?, ?, ?)`,
           [label, amount, type, categoryId, accountId,
             isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, userId]
@@ -277,7 +288,7 @@ function buildServer(userId: number): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, user_id)
+          `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, created_by)
            VALUES (?, ?, ?, ?, ${BOOL_PARAM}, ?, ?)`,
           [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, userId]
         );
@@ -306,7 +317,7 @@ function buildServer(userId: number): McpServer {
     async ({ id, label, amount, type, categoryId, accountId, isActive, note, endDate }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT id FROM expense_items WHERE id = ? AND created_by = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Expense ${id} not found` }], isError: true
         };
@@ -323,7 +334,7 @@ function buildServer(userId: number): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
+        await db.run(`UPDATE expense_items SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -347,7 +358,7 @@ function buildServer(userId: number): McpServer {
     async ({ id, label, amount, type, accountId, isActive, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND created_by = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Income ${id} not found` }], isError: true
         };
@@ -362,7 +373,7 @@ function buildServer(userId: number): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
+        await db.run(`UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -378,7 +389,7 @@ function buildServer(userId: number): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM expense_items WHERE id = ? AND user_id = ?", [id, userId]);
+        const result = await db.run("DELETE FROM expense_items WHERE id = ? AND created_by = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Expense ${id} not found` }], isError: true
         };
@@ -397,7 +408,7 @@ function buildServer(userId: number): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM income_sources WHERE id = ? AND user_id = ?", [id, userId]);
+        const result = await db.run("DELETE FROM income_sources WHERE id = ? AND created_by = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Income ${id} not found` }], isError: true
         };
@@ -428,7 +439,7 @@ function buildServer(userId: number): McpServer {
           LEFT JOIN categories c ON c.id = t.category_id
           LEFT JOIN accounts   a ON a.id = t.account_id
           LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
-          WHERE t.user_id = ?
+          WHERE t.created_by = ?
         `;
         const params: any[] = [userId];
         if (accountId !== undefined) {
@@ -477,7 +488,7 @@ function buildServer(userId: number): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, user_id)
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, created_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [date, label, amount, type, categoryId || null, accountId, note || null, userId]
         );
@@ -513,6 +524,7 @@ function buildServer(userId: number): McpServer {
         }
         const db = await getDb();
         const { rows } = await db.query(
+          // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
           "SELECT id FROM accounts WHERE user_id = ? AND (id = ? OR id = ?)",
           [userId, sourceAccountId, targetAccountId]
         );
@@ -525,7 +537,7 @@ function buildServer(userId: number): McpServer {
         // Keine `category_id`: ein Transfer hat zwei Konten in möglicherweise
         // verschiedenen Kategorienräumen — die Frage „aus welchem Raum" hat keine Antwort.
         const result = await db.run(
-          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, counter_account_id, note, user_id)
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, counter_account_id, note, created_by)
            VALUES (?, ?, ?, 'transfer', NULL, ?, ?, ?, ?)`,
           [date, label, amount, sourceAccountId, targetAccountId, note || null, userId]
         );
@@ -556,7 +568,7 @@ function buildServer(userId: number): McpServer {
     async ({ id, date, label, amount, type, accountId, categoryId, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id, type FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT id, type FROM transactions WHERE id = ? AND created_by = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
         };
@@ -574,7 +586,7 @@ function buildServer(userId: number): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
+        await db.run(`UPDATE transactions SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -590,10 +602,10 @@ function buildServer(userId: number): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT type FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT type FROM transactions WHERE id = ? AND created_by = ?", [id, userId]);
         const refusal = rows.length > 0 ? refuseTransfer(rows[0].type) : null;
         if (refusal) return refusal;
-        const result = await db.run("DELETE FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
+        const result = await db.run("DELETE FROM transactions WHERE id = ? AND created_by = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
         };
@@ -619,7 +631,7 @@ function buildServer(userId: number): McpServer {
           FROM transaction_templates t
           LEFT JOIN categories c ON c.id = t.category_id
           LEFT JOIN accounts   a ON a.id = t.account_id
-          WHERE t.user_id = ?
+          WHERE t.created_by = ?
         `;
         const params: any[] = [userId];
         if (type) { sql += " AND t.type = ?"; params.push(type); }
@@ -655,7 +667,7 @@ function buildServer(userId: number): McpServer {
       try {
         const db = await getDb();
         const result = await db.run(
-          `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note, user_id)
+          `INSERT INTO transaction_templates (label, amount, type, category_id, account_id, note, created_by)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [label, amount, type, categoryId || null, accountId, note || null, userId]
         );
@@ -683,7 +695,7 @@ function buildServer(userId: number): McpServer {
     async ({ id, label, amount, type, accountId, categoryId, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT id FROM transaction_templates WHERE id = ? AND created_by = ?", [id, userId]);
         if ((rows as any[]).length === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
@@ -698,7 +710,7 @@ function buildServer(userId: number): McpServer {
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true
         };
-        await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, [...values, id, userId]);
+        await db.run(`UPDATE transaction_templates SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`, [...values, id, userId]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true }) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
@@ -714,7 +726,7 @@ function buildServer(userId: number): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
-        const result = await db.run("DELETE FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
+        const result = await db.run("DELETE FROM transaction_templates WHERE id = ? AND created_by = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
@@ -736,13 +748,13 @@ function buildServer(userId: number): McpServer {
     async ({ id, date }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT * FROM transaction_templates WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT * FROM transaction_templates WHERE id = ? AND created_by = ?", [id, userId]);
         if ((rows as any[]).length === 0) return {
           content: [{ type: "text" as const, text: `Error: Template ${id} not found` }], isError: true
         };
         const tpl = (rows as any[])[0];
         const result = await db.run(
-          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, user_id)
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, note, created_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [date, tpl.label, tpl.amount, tpl.type, tpl.category_id, tpl.account_id, tpl.note, userId]
         );
@@ -778,7 +790,7 @@ function buildServer(userId: number): McpServer {
         const monthlyParams: any[] = [userId];
         // Übertragungen fallen auf SQL-Ebene heraus — der `else`-Zweig unten machte
         // sonst jede von ihnen zur Ausgabe.
-        let monthlyWhere = `WHERE user_id = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
+        let monthlyWhere = `WHERE created_by = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
         if (cutoff) { monthlyWhere += " AND date >= ?"; monthlyParams.push(cutoff); }
 
         const { rows: monthlyRaw } = await db.query(
@@ -801,7 +813,7 @@ function buildServer(userId: number): McpServer {
         }));
 
         const catParams: any[] = [userId];
-        let catWhere = "WHERE t.type = 'expense' AND t.user_id = ?";
+        let catWhere = "WHERE t.type = 'expense' AND t.created_by = ?";
         if (cutoff) { catWhere += " AND t.date >= ?"; catParams.push(cutoff); }
 
         const { rows: catRaw } = await db.query(
@@ -847,8 +859,9 @@ function buildServer(userId: number): McpServer {
         const db = await getDb();
         const refDate = date ?? new Date().toISOString().slice(0, 10);
         await db.run(
-          "UPDATE accounts SET actual_balance = ?, actual_balance_date = ? WHERE id = ? AND user_id = ?",
-          [balance, refDate, id, userId]
+          // eslint-disable-next-line no-restricted-syntax -- Besitz an accounts; das Sichtbarkeitsprädikat folgt in Phase B
+          "UPDATE accounts SET actual_balance = ?, actual_balance_date = ?, actual_balance_by = ? WHERE id = ? AND user_id = ?",
+          [balance, refDate, userId, id, userId]
         );
         return {
           content: [{
@@ -880,6 +893,7 @@ export async function mcpSseHandler(req: IncomingMessage, res: ServerResponse) {
   const hashed = hashApiKey(apiKey);
   const db = await getDb();
   const { rows } = await db.query(
+    // eslint-disable-next-line no-restricted-syntax -- Auth-Tabelle (users/api_keys) — von der Konto-Sichtbarkeit unberührt
     `SELECT u.id AS user_id
      FROM api_keys ak
      JOIN users u ON u.id = ak.user_id

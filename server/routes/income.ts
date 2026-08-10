@@ -26,7 +26,7 @@ router.get("/", async (req, res, next) => {
          a.color AS acc_color
        FROM income_sources i
        LEFT JOIN accounts a ON a.id = i.account_id
-       WHERE i.user_id = ?
+       WHERE i.created_by = ?
        ORDER BY i.id`,
       [req.user!.id]
     );
@@ -59,7 +59,7 @@ router.post("/", async (req, res, next) => {
     const { label, amount, type, accountId, isActive, note } = parsed.data;
     const db = await getDb();
     const result = await db.run(
-      `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, user_id)
+      `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, created_by)
        VALUES (?, ?, ?, ?, ${BOOL_PARAM}, ?, ?)`,
       [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, req.user!.id]
     );
@@ -78,7 +78,7 @@ router.patch("/:id", async (req, res, next) => {
     const { label, amount, type, accountId, isActive, note } = parsed.data;
 
     const db = await getDb();
-    const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND user_id = ?", [id, req.user!.id]);
+    const { rows } = await db.query("SELECT id FROM income_sources WHERE id = ? AND created_by = ?", [id, req.user!.id]);
     if (rows.length === 0) return res.status(404).json({ error: "Income not found" });
 
     const fields: string[] = [];
@@ -94,7 +94,7 @@ router.patch("/:id", async (req, res, next) => {
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
 
     await db.run(
-      `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
+      `UPDATE income_sources SET ${fields.join(", ")} WHERE id = ? AND created_by = ?`,
       [...values, id, req.user!.id]
     );
     res.json({ ok: true });
@@ -107,7 +107,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
-    const result = await db.run("DELETE FROM income_sources WHERE id = ? AND user_id = ?", [req.params.id, req.user!.id]);
+    const result = await db.run("DELETE FROM income_sources WHERE id = ? AND created_by = ?", [req.params.id, req.user!.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Income not found" });
     res.json({ ok: true });
   } catch (err) {
