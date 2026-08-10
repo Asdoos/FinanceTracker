@@ -98,7 +98,39 @@ router.get("/", async (req, res, next) => {
        ORDER BY a.id`,
       [req.user!.id]
     );
-    res.json(rows.map(accountPayload));
+    // Am Gemeinschaftskonto wird der Freibetrag **je Mitglied aufgeschlüsselt**
+    // angezeigt — eine bewusste Offenlegung einer persönlichen Steuerangabe, weil
+    // die Netto-Zinsprojektion die Summe aller Mitglieder-Freibeträge gegen den
+    // vollen Bruttozins rechnet und die Zahl sonst unerklärlich wäre.
+    const sharedIds = (rows as any[]).filter((r) => r.is_shared).map((r) => Number(r.id));
+    const byMember = new Map<number, any[]>();
+    if (sharedIds.length > 0) {
+      const { rows: memberRows } = await db.query(
+        // eslint-disable-next-line no-restricted-syntax -- account_members: user_id ist der Mitgliedsbezug selbst
+        `SELECT m.account_id, m.user_id, m.freibetrag, m.freibetrag_year, u.display_name, u.email
+         FROM account_members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.account_id IN (${sharedIds.join(",")}) AND m.status = 'active'
+         ORDER BY m.id`
+      );
+      for (const m of memberRows as any[]) {
+        const list = byMember.get(Number(m.account_id)) ?? [];
+        list.push({
+          userId: m.user_id,
+          displayName: m.display_name || m.email,
+          freibetrag: m.freibetrag ?? null,
+          freibetragYear: m.freibetrag_year ?? null,
+        });
+        byMember.set(Number(m.account_id), list);
+      }
+    }
+
+    res.json(
+      (rows as any[]).map((r) => ({
+        ...accountPayload(r),
+        freibetragByMember: r.is_shared ? byMember.get(Number(r.id)) ?? [] : undefined,
+      }))
+    );
   } catch (err) {
     next(err);
   }

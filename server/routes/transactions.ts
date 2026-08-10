@@ -4,6 +4,7 @@ import { getDb } from "../db";
 import { signedAmount } from "../lib/transactions";
 import { accountIn, transactionReadPredicate, transactionWritePredicate, visibleAccounts } from "../lib/visibility";
 import { checkAccountAndCategory } from "../lib/coupling";
+import { checkTransactionWritable, creatorNames, transferView } from "../lib/masking";
 
 const router = Router();
 
@@ -175,8 +176,14 @@ router.get("/", async (req, res, next) => {
       }
     }
 
+    // Erstmals anfragesteller-abhängig: dieselbe Zeile sieht für zwei Mitglieder
+    // unterschiedlich aus.
+    const names = await creatorNames(db, rows);
+
     res.json(
-      rows.map((r: any) => ({
+      rows.map((r: any) => {
+        const view = transferView(r, acc, names);
+        return {
         id: r.id,
         date: r.date,
         label: r.label,
@@ -189,19 +196,29 @@ router.get("/", async (req, res, next) => {
         category: r.cat_name
           ? { id: r.category_id, name: r.cat_name, color: r.cat_color }
           : null,
-        account: r.acc_name
+        // Maskiertes Ende: der Urheber-Name statt des Kontonamens. Betrag,
+        // Datum und Label bleiben vollständig — der Saldo wäre sonst unerklärlich.
+        account: view.maskedAccount
+          ? view.maskedAccount
+          : r.acc_name
           ? { id: r.account_id, name: r.acc_name, color: r.acc_color }
           : null,
-        counterAccount: r.counter_name
+        counterAccount: view.maskedCounterAccount
+          ? view.maskedCounterAccount
+          : r.counter_name
           ? { id: r.counter_account_id, name: r.counter_name, color: r.counter_color }
           : null,
+        // Vom Server, weil das Frontend es nicht ableiten kann: bei einer
+        // maskierten Zeile steht das fremde Ende gar nicht in der Nutzlast.
+        canEdit: view.canEdit,
         // Nur im lückenlosen Auszug gesetzt, sonst null.
         runningBalance: balances.get(Number(r.id)) ?? null,
         // Vorzeichen aus Sicht des gewählten Kontos — eine Übertragung steht im
         // Auszug beider Konten, mit umgekehrtem Vorzeichen, aber als *eine* Buchung.
         signedAmount:
           accountId !== null && !isNaN(accountId) ? signedAmount(r, accountId) : null,
-      }))
+        };
+      })
     );
   } catch (err) {
     next(err);
@@ -241,6 +258,9 @@ router.patch("/:id", async (req, res, next) => {
 
     const db = await getDb();
     const acc = await visibleAccounts(db, req.user!.id);
+    const refusal = await checkTransactionWritable(db, acc, id);
+    if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
     const { rows } = await db.query(`SELECT * FROM transactions WHERE id = ? AND ${writePredicate(acc.all)}`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
     const current = rows[0];
@@ -285,6 +305,9 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const db = await getDb();
     const acc = await visibleAccounts(db, req.user!.id);
+    const refusal = await checkTransactionWritable(db, acc, req.params.id);
+    if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
     const result = await db.run(`DELETE FROM transactions WHERE id = ? AND ${writePredicate(acc.all)}`, [req.params.id]);
     if (result.changes === 0) return res.status(404).json({ error: "Transaction not found" });
     res.json({ ok: true });
