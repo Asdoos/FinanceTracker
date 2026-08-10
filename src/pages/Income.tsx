@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur } from "../lib/format";
+import { errorMessage } from "../lib/errors";
 import { Plus, Pencil, Trash2, Check, Search, Download } from "lucide-react";
 import { Modal } from "../components/Modal";
 
@@ -146,7 +147,7 @@ export default function Income() {
       refetchIncomes();
       toast.success(editItem ? "Einnahme gespeichert" : "Einnahme hinzugefügt");
     } catch (err) {
-      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setMutationError(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -158,8 +159,8 @@ export default function Income() {
       await api.delete(`/income/${id}`);
       refetchIncomes();
       toast.success("Einnahme gelöscht");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 

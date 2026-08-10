@@ -17,7 +17,7 @@ import Setup from "./pages/Setup";
 import UserManagement from "./pages/UserManagement";
 import { CommandPalette } from "./components/CommandPalette";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider, useAuth, type AuthUser } from "./context/AuthContext";
 
 const nav = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -32,7 +32,7 @@ const nav = [
   { to: "/goals", icon: Target, label: "Sparziele" },
 ];
 
-function MobileDrawer({ user, logout }: { user: any; logout: () => void }) {
+function MobileDrawer({ user, logout }: { user: AuthUser | null; logout: () => void }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const close = () => setOpen(false);

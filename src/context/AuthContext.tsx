@@ -7,12 +7,20 @@ export interface AuthUser {
   isAdmin: boolean;
 }
 
+/** Antwort von `POST /api/auth/setup` — enthält den Bericht über die zugewiesenen Bestandsdaten. */
+export interface SetupResult {
+  token: string;
+  refreshToken: string;
+  user: AuthUser;
+  migration?: { tables: Record<string, number>; totalRows: number };
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   setupComplete: boolean | null;
   login: (email: string, password: string) => Promise<void>;
-  setup: (email: string, password: string, displayName?: string) => Promise<any>;
+  setup: (email: string, password: string, displayName?: string) => Promise<SetupResult>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -135,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(body.error || "Setup fehlgeschlagen");
     }
 
-    const data = await res.json();
+    const data: SetupResult = await res.json();
     localStorage.setItem("access_token", data.token);
     localStorage.setItem("refresh_token", data.refreshToken);
     setUser(data.user);

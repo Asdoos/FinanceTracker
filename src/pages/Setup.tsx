@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { errorMessage } from "../lib/errors";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
@@ -42,8 +43,8 @@ export default function Setup() {
       }
 
       navigate("/");
-    } catch (err: any) {
-      setError(err.message || "Setup fehlgeschlagen");
+    } catch (err) {
+      setError(errorMessage(err, "Setup fehlgeschlagen"));
     } finally {
       setLoading(false);
     }

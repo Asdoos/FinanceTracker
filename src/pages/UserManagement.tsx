@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { UserPlus, Trash2, Key, Copy, Eye, EyeOff } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApi, api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { useAuth } from "../context/AuthContext";
 
 interface User {
@@ -46,8 +47,8 @@ export default function UserManagement() {
       setDisplayName("");
       setIsAdmin(false);
       refetchUsers();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     } finally {
       setCreating(false);
     }
@@ -59,8 +60,8 @@ export default function UserManagement() {
       await api.delete(`/auth/users/${id}`);
       toast.success("Benutzer gelöscht");
       refetchUsers();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 
@@ -71,8 +72,8 @@ export default function UserManagement() {
       setNewKey(res.key);
       setKeyLabel("");
       refetchKeys();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 
@@ -81,8 +82,8 @@ export default function UserManagement() {
       await api.delete(`/auth/api-keys/${id}`);
       toast.success("API-Key gelöscht");
       refetchKeys();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 

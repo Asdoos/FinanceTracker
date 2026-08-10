@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import toast from "react-hot-toast";
 import { Plus, Pencil, Trash2, Check } from "lucide-react";
 import { Modal } from "../components/Modal";
@@ -94,7 +95,7 @@ export default function Categories() {
       refetch();
       toast.success(editId ? "Kategorie gespeichert" : "Kategorie erstellt");
     } catch (err) {
-      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setMutationError(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -106,8 +107,8 @@ export default function Categories() {
       await api.delete(`/categories/${id}`);
       refetch();
       toast.success("Kategorie gelöscht");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 

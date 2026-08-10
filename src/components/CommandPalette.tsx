@@ -39,6 +39,16 @@ interface Props {
   onClose: () => void;
 }
 
+/** Nur die Felder, die die Palette aus den drei Endpunkten tatsächlich liest. */
+interface SearchableItem {
+  id: number;
+  label: string;
+  amount: number;
+  monthlyAmount?: number;
+  date?: string;
+  account?: { name?: string } | null;
+}
+
 export function CommandPalette({ open, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [allData, setAllData] = useState<Result[]>([]);
@@ -55,9 +65,9 @@ export function CommandPalette({ open, onClose }: Props) {
       fetch("/api/income").then((r) => r.json()),
       fetch("/api/transactions").then((r) => r.json()),
     ])
-      .then(([expenses, incomes, transactions]) => {
+      .then(([expenses, incomes, transactions]: SearchableItem[][]) => {
         const results: Result[] = [];
-        for (const e of expenses as any[]) {
+        for (const e of expenses) {
           results.push({
             id: `expense-${e.id}`,
             type: "expense",
@@ -66,7 +76,7 @@ export function CommandPalette({ open, onClose }: Props) {
             href: "/expenses",
           });
         }
-        for (const i of incomes as any[]) {
+        for (const i of incomes) {
           results.push({
             id: `income-${i.id}`,
             type: "income",
@@ -75,7 +85,7 @@ export function CommandPalette({ open, onClose }: Props) {
             href: "/income",
           });
         }
-        for (const t of (transactions as any[]).slice(0, 200)) {
+        for (const t of transactions.slice(0, 200)) {
           results.push({
             id: `tx-${t.id}`,
             type: "transaction",

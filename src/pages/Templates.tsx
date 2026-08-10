@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur } from "../lib/format";
+import { errorMessage } from "../lib/errors";
 import { Plus, Pencil, Trash2, Check, PlayCircle } from "lucide-react";
 import { Modal } from "../components/Modal";
 
@@ -138,7 +139,7 @@ export default function Templates() {
       refetch();
       toast.success(editItem ? "Vorlage gespeichert" : "Vorlage erstellt");
     } catch (err) {
-      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setMutationError(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -150,8 +151,8 @@ export default function Templates() {
       await api.delete(`/templates/${id}`);
       refetch();
       toast.success("Vorlage gelöscht");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 
@@ -180,7 +181,7 @@ export default function Templates() {
       toast.success("Transaktion gebucht");
       navigate("/transactions");
     } catch (err) {
-      setBookError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setBookError(errorMessage(err));
     } finally {
       setIsSubmittingBook(false);
     }

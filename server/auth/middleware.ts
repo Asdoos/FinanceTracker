@@ -10,6 +10,9 @@ export interface AuthUser {
 }
 
 declare global {
+  // Express erweitert man ausschließlich über sein globales Namespace-Idiom —
+  // als ES-Modul ist das nicht ausdrückbar.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthUser;

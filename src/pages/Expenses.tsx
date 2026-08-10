@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur, pct } from "../lib/format";
+import { errorMessage } from "../lib/errors";
 import { Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, Search, Download } from "lucide-react";
 import { Modal } from "../components/Modal";
 
@@ -135,7 +136,8 @@ export default function Expenses() {
   function toggleCollapse(key: string) {
     setCollapsed((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -193,7 +195,7 @@ export default function Expenses() {
       refetchExpenses();
       toast.success(editItem ? "Ausgabe gespeichert" : "Ausgabe hinzugefügt");
     } catch (err) {
-      setMutationError(err instanceof Error ? err.message : "Unbekannter Fehler");
+      setMutationError(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -205,8 +207,8 @@ export default function Expenses() {
       await api.delete(`/expenses/${id}`);
       refetchExpenses();
       toast.success("Ausgabe gelöscht");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 

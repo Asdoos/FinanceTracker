@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { Plus, Pencil, Trash2, Target } from "lucide-react";
 import { Modal } from "../components/Modal";
 import { eur } from "../lib/format";
+import { errorMessage } from "../lib/errors";
 
 type Goal = {
   id: number;
@@ -103,8 +104,8 @@ export default function Goals() {
       }
       closeModal();
       refetch();
-    } catch (err: any) {
-      setMutationError(err.message ?? "Fehler");
+    } catch (err) {
+      setMutationError(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -115,8 +116,8 @@ export default function Goals() {
       await api.delete(`/goals/${id}`);
       toast.success("Sparziel gelöscht");
       refetch();
-    } catch (err: any) {
-      toast.error(err.message ?? "Fehler");
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 
