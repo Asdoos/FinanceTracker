@@ -1,8 +1,34 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { BOOL_PARAM } from "../db/sql";
 
 const router = Router();
+
+/**
+ * Setzt die Default-Markierung aller *anderen* Konten des Nutzers zurück.
+ *
+ * Läuft immer **vor** dem Setzen des neuen Defaults: bricht der zweite Schritt ab,
+ * hat der Nutzer kein Default-Konto — was die Invariante „höchstens eines" erfüllt.
+ * Umgekehrte Reihenfolge könnte zwei hinterlassen.
+ */
+async function clearOtherDefaults(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userId: number,
+  exceptId?: string
+): Promise<void> {
+  if (exceptId !== undefined) {
+    await db.run(
+      `UPDATE accounts SET is_default = ${BOOL_PARAM} WHERE user_id = ? AND id <> ?`,
+      [0, userId, exceptId]
+    );
+  } else {
+    await db.run(
+      `UPDATE accounts SET is_default = ${BOOL_PARAM} WHERE user_id = ?`,
+      [0, userId]
+    );
+  }
+}
 
 const AccountCreateSchema = z.object({
   name: z.string().min(1),
@@ -53,8 +79,9 @@ router.post("/", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const { name, color, description, isDefault, freibetrag, freibetragYear, interestRate, interestRateUntil, interestInterval } = parsed.data;
     const db = await getDb();
+    if (isDefault) await clearOtherDefaults(db, req.user!.id);
     const result = await db.run(
-      "INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO accounts (name, color, description, is_default, freibetrag, freibetrag_year, interest_rate, interest_rate_until, interest_interval, user_id) VALUES (?, ?, ?, ${BOOL_PARAM}, ?, ?, ?, ?, ?, ?)`,
       [name, color, description || null, isDefault ? 1 : 0, freibetrag ?? null, freibetragYear ?? null, interestRate ?? null, interestRateUntil ?? null, interestInterval ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
@@ -81,7 +108,7 @@ router.patch("/:id", async (req, res, next) => {
     if (name !== undefined) { fields.push("name = ?"); values.push(name); }
     if (color !== undefined) { fields.push("color = ?"); values.push(color); }
     if (description !== undefined) { fields.push("description = ?"); values.push(description || null); }
-    if (isDefault !== undefined) { fields.push("is_default = ?"); values.push(isDefault ? 1 : 0); }
+    if (isDefault !== undefined) { fields.push(`is_default = ${BOOL_PARAM}`); values.push(isDefault ? 1 : 0); }
     if (freibetrag !== undefined) { fields.push("freibetrag = ?"); values.push(freibetrag ?? null); }
     if (freibetragYear !== undefined) { fields.push("freibetrag_year = ?"); values.push(freibetragYear ?? null); }
     if (interestRate !== undefined) { fields.push("interest_rate = ?"); values.push(interestRate ?? null); }
@@ -91,6 +118,8 @@ router.patch("/:id", async (req, res, next) => {
     if (interestInterval !== undefined) { fields.push("interest_interval = ?"); values.push(interestInterval ?? null); }
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
+
+    if (isDefault) await clearOtherDefaults(db, req.user!.id, id);
 
     await db.run(
       `UPDATE accounts SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,

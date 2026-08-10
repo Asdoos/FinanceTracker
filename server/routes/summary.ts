@@ -80,9 +80,14 @@ router.get("/", async (req, res, next) => {
       if (account.actual_balance !== null && account.actual_balance !== undefined) {
         actualBalance = account.actual_balance;
         actualBalanceDate = account.actual_balance_date ?? null;
-        const refDate = actualBalanceDate ?? "1970-01-01";
+        // Ohne Ankerdatum zählen alle Buchungen — der leere String ist lexikalisch
+        // kleiner als jedes Datum und bleibt das auch unter dem strikten Vergleich.
+        const refDate = actualBalanceDate ?? "";
+        // Strikt `>`: der Anker gilt für das **Ende** des genannten Tages. Buchungen
+        // *am* Ankertag stecken bereits im abgelesenen Saldo — der bisherige `>=`
+        // addierte sie ein zweites Mal.
         const netSince = allTxRows
-          .filter((tx: any) => tx.account_id === account.id && tx.date >= refDate)
+          .filter((tx: any) => tx.account_id === account.id && tx.date > refDate)
           .reduce((sum: number, tx: any) =>
             sum + (tx.type === "income" ? tx.amount : -tx.amount), 0
           );

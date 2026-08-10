@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import type { DbAdapter, QueryResult } from "./adapter";
+import { migrationFailed, pendingMigrations } from "./migrations";
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
@@ -100,6 +101,50 @@ const SCHEMA = `
   );
 `;
 
+/**
+ * Kopiert die Datenbankdatei, bevor der erste anstehende Schritt einer Session läuft.
+ * Ein Nutzer, dessen Migration bricht, hat keinen Weg zurück — das ist das Netz.
+ * Kein Backup, wenn nichts anstünde.
+ */
+function backupBeforeMigration(db: Database.Database, dbPath: string, version: number): void {
+  // WAL zuerst in die Hauptdatei schreiben, sonst kopieren wir einen veralteten Stand.
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  const target = `${dbPath}.pre-v${version}.bak`;
+  fs.copyFileSync(dbPath, target);
+  console.log(`[DB] Backup vor Migration ${version} angelegt: ${target}`);
+}
+
+function runSqliteMigrations(db: Database.Database, dbPath: string): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  const { v } = db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations").get() as { v: number };
+  const pending = pendingMigrations(Number(v));
+  if (pending.length === 0) return;
+
+  backupBeforeMigration(db, dbPath, pending[0].version);
+
+  const mark = db.prepare("INSERT INTO schema_migrations (version) VALUES (?)");
+  for (const step of pending) {
+    // Schritt und Versionsmarke in *einer* Transaktion — es darf keinen Zustand
+    // „Schritt lief, Marke fehlt" geben.
+    const apply = db.transaction(() => {
+      for (const sql of step.sqlite) db.exec(sql);
+      mark.run(step.version);
+    });
+    try {
+      apply();
+    } catch (err) {
+      throw migrationFailed(step, err);
+    }
+    console.log(`[DB] Migration ${step.version} angewendet: ${step.name}`);
+  }
+}
+
 export function createSqliteAdapter(dbPath?: string): DbAdapter {
   const resolvedPath =
     dbPath || process.env.DATABASE_PATH || path.join(process.cwd(), "data", "finance.db");
@@ -111,7 +156,10 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
 
-  // Migrations for existing databases
+  // ── Prä-Versions-Präambel (Bestand = Version 0) ──
+  // Diese Zeilen sind der Zustand vor dem Migrationssystem. Sie bleiben stehen und
+  // laufen weiter *vor* Schritt 1; nichts wird rückwirkend rekonstruiert. Neue
+  // Schemaänderungen gehören ausschließlich nach `migrations.ts`.
   try { db.exec("ALTER TABLE expense_items ADD COLUMN end_date TEXT DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag REAL DEFAULT NULL"); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE accounts ADD COLUMN freibetrag_year INTEGER DEFAULT NULL"); } catch { /* already exists */ }
@@ -140,6 +188,8 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
   try { db.exec("CREATE INDEX idx_transactions_user ON transactions(user_id)"); } catch { /* already exists */ }
   try { db.exec("CREATE INDEX idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* already exists */ }
   try { db.exec("CREATE INDEX idx_goals_user ON goals(user_id)"); } catch { /* already exists */ }
+
+  runSqliteMigrations(db, resolvedPath);
 
   console.log(`[DB] SQLite connected: ${resolvedPath}`);
 

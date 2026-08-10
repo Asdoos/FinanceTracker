@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { IncomingMessage, ServerResponse } from "http";
 import crypto from "crypto";
 import { getDb } from "./db";
+import { BOOL_PARAM } from "./db/sql";
 
 const sessions = new Map<string, SSEServerTransport>();
 
@@ -230,7 +231,7 @@ function buildServer(userId: number): McpServer {
         const db = await getDb();
         const result = await db.run(
           `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ${BOOL_PARAM}, ?, ?, ?)`,
           [label, amount, type, categoryId, accountId,
             isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, userId]
         );
@@ -258,7 +259,7 @@ function buildServer(userId: number): McpServer {
         const db = await getDb();
         const result = await db.run(
           `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ${BOOL_PARAM}, ?, ?)`,
           [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, userId]
         );
         return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
@@ -297,7 +298,7 @@ function buildServer(userId: number): McpServer {
         if (type !== undefined) { fields.push("type = ?"); values.push(type); }
         if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId); }
         if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
-        if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
+        if (isActive !== undefined) { fields.push(`is_active = ${BOOL_PARAM}`); values.push(isActive ? 1 : 0); }
         if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
         if (endDate !== undefined) { fields.push("end_date = ?"); values.push(endDate || null); }
         if (fields.length === 0) return {
@@ -337,7 +338,7 @@ function buildServer(userId: number): McpServer {
         if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
         if (type !== undefined) { fields.push("type = ?"); values.push(type); }
         if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
-        if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
+        if (isActive !== undefined) { fields.push(`is_active = ${BOOL_PARAM}`); values.push(isActive ? 1 : 0); }
         if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
         if (fields.length === 0) return {
           content: [{ type: "text" as const, text: "No fields to update" }], isError: true

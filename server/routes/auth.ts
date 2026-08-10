@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { getDb } from "../db";
+import { BOOL_PARAM } from "../db/sql";
 import { migrateOrphanedData } from "../db/migrate";
 import {
   signAccessToken,
@@ -302,7 +303,7 @@ router.post("/users", requireAuth, requireAdmin, async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const result = await db.run(
-      "INSERT INTO users (email, password_hash, display_name, is_admin) VALUES (?, ?, ?, ?)",
+      `INSERT INTO users (email, password_hash, display_name, is_admin) VALUES (?, ?, ?, ${BOOL_PARAM})`,
       [email, passwordHash, displayName || null, isAdmin ? 1 : 0]
     );
     const userId = result.lastId;
@@ -363,7 +364,7 @@ router.patch(
         values.push(await bcrypt.hash(password, BCRYPT_ROUNDS));
       }
       if (isAdmin !== undefined) {
-        fields.push("is_admin = ?");
+        fields.push(`is_admin = ${BOOL_PARAM}`);
         values.push(isAdmin ? 1 : 0);
       }
 

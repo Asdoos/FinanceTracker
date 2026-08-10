@@ -89,11 +89,11 @@ router.get("/", async (req, res, next) => {
     // ── Recurring monthly baseline ───────────────────────────────────────
     const today = new Date().toISOString().slice(0, 10);
     const { rows: recurExp } = await db.query(
-      `SELECT amount, type FROM expense_items WHERE user_id = ? AND is_active = 1 AND (end_date IS NULL OR end_date >= ?)`,
+      `SELECT amount, type FROM expense_items WHERE user_id = ? AND is_active AND (end_date IS NULL OR end_date >= ?)`,
       [userId, today]
     );
     const { rows: recurInc } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active = 1`,
+      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active`,
       [userId]
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
@@ -140,11 +140,11 @@ router.get("/budget-comparison", async (req, res, next) => {
 
     // Planned totals from recurring items (active, respecting end_date per month)
     const { rows: expItems } = await db.query(
-      `SELECT amount, type, end_date FROM expense_items WHERE user_id = ? AND is_active = 1`,
+      `SELECT amount, type, end_date FROM expense_items WHERE user_id = ? AND is_active`,
       [userId]
     );
     const { rows: incItems } = await db.query(
-      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active = 1`,
+      `SELECT amount, type FROM income_sources WHERE user_id = ? AND is_active`,
       [userId]
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { BOOL_PARAM } from "../db/sql";
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.post("/", async (req, res, next) => {
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO income_sources (label, amount, type, account_id, is_active, note, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ${BOOL_PARAM}, ?, ?)`,
       [label, amount, type, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
@@ -87,7 +88,7 @@ router.patch("/:id", async (req, res, next) => {
     if (amount !== undefined) { fields.push("amount = ?"); values.push(amount); }
     if (type !== undefined) { fields.push("type = ?"); values.push(type); }
     if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
-    if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
+    if (isActive !== undefined) { fields.push(`is_active = ${BOOL_PARAM}`); values.push(isActive ? 1 : 0); }
     if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
 
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });

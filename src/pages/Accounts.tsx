@@ -588,7 +588,7 @@ export default function Accounts() {
             <p className="text-sm text-gray-400 -mt-2">{balanceModal.name}</p>
 
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Aktueller Kontostand (€)</label>
+              <label className="text-xs text-gray-400 font-medium">Kontostand am Ende des Tages (€)</label>
               <input
                 type="number"
                 step="0.01"
@@ -601,7 +601,7 @@ export default function Accounts() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs text-gray-400 font-medium">Datum (Referenztag)</label>
+              <label className="text-xs text-gray-400 font-medium">Stichtag</label>
               <input
                 type="date"
                 value={balanceForm.date}
@@ -611,7 +611,9 @@ export default function Accounts() {
             </div>
 
             <p className="text-xs text-gray-600">
-              Ab diesem Datum werden Transaktionen zum errechneten Saldo addiert.
+              Der Saldo gilt für das Ende dieses Tages. Buchungen <em>nach</em> dem Stichtag
+              werden zum errechneten Saldo addiert — Buchungen am Stichtag selbst stecken
+              bereits im eingetragenen Wert.
             </p>
 
             <div className="flex gap-3 pt-1">

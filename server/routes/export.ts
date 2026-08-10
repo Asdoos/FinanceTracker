@@ -4,6 +4,18 @@ import { getDb } from "../db";
 const router = Router();
 
 const escape = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+/**
+ * Buchungstyp für die CSV. Der Ausgaben-Export übersetzt seit jeher, der
+ * Transaktions-Export schrieb den rohen englischen Wert. Als Abbildung angelegt,
+ * damit `transfer` → `Übertragung` in v0.25 nur ein Eintrag mehr ist.
+ */
+const TRANSACTION_TYPE_LABELS: Record<string, string> = {
+  income: "Einnahme",
+  expense: "Ausgabe",
+};
+const transactionTypeLabel = (type: string) => TRANSACTION_TYPE_LABELS[type] ?? type;
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 function toCsv(header: string, rows: any[][]): string {
@@ -27,7 +39,7 @@ router.get("/transactions", async (req, res, next) => {
     );
     const header = "Datum;Bezeichnung;Betrag;Typ;Kategorie;Konto;Notiz\n";
     const data = (rows as any[]).map((r) => [
-      r.date, r.label, r.amount, r.type, r.category ?? "", r.account ?? "", r.note ?? "",
+      r.date, r.label, r.amount, transactionTypeLabel(r.type), r.category ?? "", r.account ?? "", r.note ?? "",
     ]);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="transaktionen-${today()}.csv"`);

@@ -1,5 +1,6 @@
 import pg from "pg";
 import type { DbAdapter, QueryResult } from "./adapter";
+import { migrationFailed, pendingMigrations } from "./migrations";
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
@@ -95,6 +96,37 @@ const SCHEMA = `
   );
 `;
 
+async function runPostgresMigrations(client: pg.PoolClient): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const { rows } = await client.query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations");
+  const pending = pendingMigrations(Number(rows[0].v));
+  if (pending.length === 0) return;
+
+  // Auf PostgreSQL gibt es kein automatisches Datei-Backup — der Hinweis auf
+  // `pg_dump` steht in den Release-Notes.
+  console.log(`[DB] ${pending.length} Migration(en) anstehend — vor dem Update wird pg_dump empfohlen.`);
+
+  for (const step of pending) {
+    // PostgreSQL kann DDL transaktional: Schritt und Versionsmarke committen gemeinsam.
+    await client.query("BEGIN");
+    try {
+      for (const sql of step.postgres) await client.query(sql);
+      await client.query("INSERT INTO schema_migrations (version) VALUES ($1)", [step.version]);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw migrationFailed(step, err);
+    }
+    console.log(`[DB] Migration ${step.version} angewendet: ${step.name}`);
+  }
+}
+
 /**
  * Convert `?` placeholders to PostgreSQL `$1, $2, ...` format.
  */
@@ -113,7 +145,9 @@ export async function createPostgresAdapter(
   const client = await pool.connect();
   try {
     await client.query(SCHEMA);
-    // Migrations for existing databases
+    // ── Prä-Versions-Präambel (Bestand = Version 0) ──
+    // Zustand vor dem Migrationssystem. Bleibt stehen, läuft weiter *vor* Schritt 1.
+    // Neue Schemaänderungen gehören ausschließlich nach `migrations.ts`.
     try { await client.query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS budget_limit DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT NULL"); } catch { /* already exists */ }
     try { await client.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS interest_rate_until TEXT DEFAULT NULL"); } catch { /* already exists */ }
@@ -138,6 +172,8 @@ export async function createPostgresAdapter(
     try { await client.query("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)"); } catch { /* ignore */ }
     try { await client.query("CREATE INDEX IF NOT EXISTS idx_transaction_templates_user ON transaction_templates(user_id)"); } catch { /* ignore */ }
     try { await client.query("CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id)"); } catch { /* ignore */ }
+
+    await runPostgresMigrations(client);
 
     console.log(`[DB] PostgreSQL connected: ${url.replace(/\/\/.*@/, "//***@")}`);
   } finally {

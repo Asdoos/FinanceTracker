@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getDb } from "../db";
+import { BOOL_PARAM } from "../db/sql";
 
 const router = Router();
 
@@ -84,7 +85,7 @@ router.post("/", async (req, res, next) => {
     const db = await getDb();
     const result = await db.run(
       `INSERT INTO expense_items (label, amount, type, category_id, account_id, is_active, note, end_date, due_month, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ${BOOL_PARAM}, ?, ?, ?, ?)`,
       [label, amount, type, categoryId, accountId, isActive !== undefined ? (isActive ? 1 : 0) : 1, note || null, endDate || null, dueMonth ?? null, req.user!.id]
     );
     res.status(201).json({ id: result.lastId });
@@ -113,7 +114,7 @@ router.patch("/:id", async (req, res, next) => {
     if (type !== undefined) { fields.push("type = ?"); values.push(type); }
     if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId); }
     if (accountId !== undefined) { fields.push("account_id = ?"); values.push(accountId); }
-    if (isActive !== undefined) { fields.push("is_active = ?"); values.push(isActive ? 1 : 0); }
+    if (isActive !== undefined) { fields.push(`is_active = ${BOOL_PARAM}`); values.push(isActive ? 1 : 0); }
     if (note !== undefined) { fields.push("note = ?"); values.push(note || null); }
     if (endDate !== undefined) { fields.push("end_date = ?"); values.push(endDate || null); }
     if (dueMonth !== undefined) { fields.push("due_month = ?"); values.push(dueMonth ?? null); }
