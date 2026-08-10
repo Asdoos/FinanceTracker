@@ -3,6 +3,8 @@ import { useApi, api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import toast from "react-hot-toast";
 import { Plus, Pencil, Trash2, Check } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { parseRoom, RoomRail, type Room } from "../components/RoomSwitcher";
 import { Modal } from "../components/Modal";
 
 type Category = {
@@ -11,7 +13,14 @@ type Category = {
   color: string;
   icon?: string;
   budget?: number | null;
+  /** Der Raum der Kategorie: null = persönlich, sonst das Gemeinschaftskonto. */
+  accountId: number | null;
+  /** Wer den Budget-Deckel gesetzt hat — nur am Gemeinschaftskonto interessant. */
+  budgetSetBy?: number | null;
 };
+
+type Account = { id: number; name: string; color: string; isShared?: boolean };
+type UserRef = { id: number; displayName?: string; email: string };
 
 const PRESET_COLORS = [
   "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b",
@@ -19,6 +28,9 @@ const PRESET_COLORS = [
 ];
 
 const INITIAL_FORM = { name: "", color: "#3b82f6", icon: "", budget: "" };
+
+const eurMonth = (v: number) =>
+  v.toLocaleString("de-DE", { style: "currency", currency: "EUR" }) + " / Monat";
 
 export default function Categories() {
   // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
@@ -29,6 +41,11 @@ export default function Categories() {
   // Formular haben sich verschoben — schlimmer als veraltet.
 
   const { data: categories, error: categoriesError, refetch } = useApi<Category[]>("/categories", { paused: modalOpen });
+  const { data: accounts } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  // Für die Spalte „gesetzt von". Nur Admins dürfen /auth/users lesen — schlägt
+  // das fehl, bleibt die Spalte bei der reinen ID-Freiheit „—".
+  const { data: users } = useApi<UserRef[]>("/auth/users", { paused: modalOpen });
+  const [params, setParams] = useSearchParams();
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -50,6 +67,31 @@ export default function Categories() {
       </div>
     );
   }
+
+  const sharedAccounts = (accounts ?? []).filter((a) => a.isShared);
+  const room = parseRoom(params.get("raum"), sharedAccounts.map((a) => a.id));
+  const selectRoom = (id: number | null) => {
+    const next = new URLSearchParams(params);
+    if (id === null) next.delete("raum");
+    else next.set("raum", String(id));
+    setParams(next, { replace: true });
+  };
+  // Die Form des Wählers folgt der Informationsdichte: „4 Kategorien" rechtfertigt
+  // keine Kachel, deshalb eine schmale Leiste statt der Kachelleiste von
+  // Dashboard und Statistik.
+  const rooms: Room[] = [
+    { id: null, name: "Persönlich", color: "#3b82f6" },
+    ...sharedAccounts.map((a) => ({ id: a.id, name: a.name, color: a.color })),
+  ];
+
+  // Nur die Kategorien des aktiven Raums — die Räume sind disjunkt.
+  const roomCategories = (categories ?? []).filter((c) =>
+    room === null ? c.accountId == null : c.accountId === room
+  );
+  const userName = (id: number) => {
+    const u = (users ?? []).find((x) => x.id === id);
+    return u ? u.displayName || u.email : '—';
+  };
 
   if (!categories) {
     return (
@@ -91,6 +133,9 @@ export default function Categories() {
         color: form.color,
         icon: form.icon.trim() || undefined,
         budget: form.budget ? parseFloat(form.budget) : null,
+        // Eine neue Kategorie entsteht im **aktiven** Raum — sonst müsste man sie
+        // nachträglich verschieben, was es nicht gibt.
+        ...(editId ? {} : { accountId: room }),
       };
       if (editId) {
         await api.patch(`/categories/${editId}`, payload);
@@ -130,62 +175,77 @@ export default function Categories() {
         </button>
       </div>
 
-      {categories.length === 0 ? (
+      <div className="flex gap-5 items-start">
+        <RoomRail rooms={rooms} active={room} onSelect={selectRoom} />
+
+        <div className="flex-1 min-w-0">
+      {/* Die Räume sind disjunkt: die gewollte Dublette „Lebensmittel" ist damit nie
+          gleichzeitig sichtbar — genau der Punkt. Ein Vergleich der beiden Zahlen
+          wäre bedeutungslos. */}
+      {roomCategories.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
-          <p className="text-sm">Noch keine Kategorien vorhanden.</p>
+          <p className="text-sm">In diesem Raum gibt es noch keine Kategorien.</p>
           <p className="text-xs mt-1">Erstelle eine Kategorie, um Ausgaben zu gruppieren.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {categories.map((cat) => (
-            <div
-              key={cat.id}
-              className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex items-center justify-between"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
-                  style={{ backgroundColor: cat.color }}
-                >
-                  {cat.icon ? (
-                    <span className="text-base">{cat.icon}</span>
-                  ) : (
-                    <span>{cat.name[0]}</span>
-                  )}
-                </div>
-                <div>
-                  <div className="font-semibold text-white">{cat.name}</div>
-                  {cat.icon && (
-                    <div className="text-xs text-gray-500">{cat.icon}</div>
-                  )}
-                  {cat.budget != null && cat.budget > 0 && (
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      Budget: {cat.budget.toLocaleString("de-DE", { style: "currency", currency: "EUR" })} / Monat
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800">
+                <th className="text-left px-4 py-3 text-gray-400 font-medium">Name</th>
+                <th className="text-right px-4 py-3 text-gray-400 font-medium w-40">Budget / Monat</th>
+                {/* Im persönlichen Raum bewusst Ballast — eine raumabhängige
+                    Spaltenzahl wäre schlechter als eine leere Spalte. */}
+                <th className="text-left px-4 py-3 text-gray-400 font-medium w-40">Gesetzt von</th>
+                <th className="px-4 py-3 w-20" />
+              </tr>
+            </thead>
+            <tbody>
+              {roomCategories.map((cat) => (
+                <tr key={cat.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                  <td className="px-4 py-2.5">
+                    <span className="flex items-center gap-2.5">
+                      <span
+                        className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
+                        style={{ backgroundColor: cat.color }}
+                      >
+                        {cat.icon ? cat.icon : cat.name[0]}
+                      </span>
+                      <span className="text-white">{cat.name}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-gray-300 whitespace-nowrap">
+                    {cat.budget != null && cat.budget > 0 ? eurMonth(cat.budget) : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500 truncate">
+                    {cat.budgetSetBy != null ? userName(cat.budgetSetBy) : "—"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1 justify-end">
+                      <button
+                        onClick={() => openEdit(cat)}
+                        aria-label="Bearbeiten"
+                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(cat.id)}
+                        aria-label="Löschen"
+                        className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-1">
-                <button
-                  onClick={() => openEdit(cat)}
-                  aria-label="Bearbeiten"
-                  className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                >
-                  <Pencil size={14} />
-                </button>
-                <button
-                  onClick={() => handleDelete(cat.id)}
-                  aria-label="Löschen"
-                  className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+        </div>
+      </div>
 
       {showModal && (
         <Modal

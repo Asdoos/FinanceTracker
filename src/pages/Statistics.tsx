@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   BarChart,
   Bar,
@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { useApi } from "../lib/api";
 import { eur } from "../lib/format";
+import { parseRoom, RoomTiles, type Room } from "../components/RoomSwitcher";
 
 interface MonthlyEntry {
   month: string;
@@ -33,8 +34,21 @@ interface CategoryEntry {
   total: number;
 }
 
+interface TransferEntry {
+  month: string;
+  /** Netto aus Sicht des Raums — hinein positiv, hinaus negativ. */
+  net: number;
+}
+
+interface SharedAccountSummary {
+  account: { id: number; name: string; color: string };
+  rest: number;
+}
+
 interface Stats {
   monthly: MonthlyEntry[];
+  /** Nur raumkreuzende Übertragungen; fließt bewusst nicht in `net`. */
+  transfers?: TransferEntry[];
   byCategory: CategoryEntry[];
   totalIncome: number;
   totalExpenses: number;
@@ -76,10 +90,47 @@ const tooltipStyle = {
 
 export default function Statistics() {
   const [range, setRange] = useState<3 | 6 | 12 | 0>(6);
-  const { data: stats, loading, error } = useApi<Stats>(`/stats?months=${range}`);
-  const { data: budgetData } = useApi<BudgetComparison[]>(`/stats/budget-comparison?months=${range === 0 ? 12 : range}`);
+  // Der Raum wird an **beide** Endpoints weitergegeben: /api/stats ist eine
+  // Zeitreihe über zwei Endpoints (Monate × Räume), kein Snapshot — ein Schnitt
+  // über zwei Listen im Client wäre nicht bildbar.
+  const [params, setParams] = useSearchParams();
+  const { data: summary } = useApi<{ rest: number; sharedAccounts?: SharedAccountSummary[] }>("/summary");
+  const shared = summary?.sharedAccounts ?? [];
+  const room = parseRoom(params.get("raum"), shared.map((x) => x.account.id));
+  const roomQuery = room === null ? "" : `&raum=${room}`;
+
+  const { data: stats, loading, error } = useApi<Stats>(`/stats?months=${range}${roomQuery}`);
+  const { data: budgetData } = useApi<BudgetComparison[]>(
+    `/stats/budget-comparison?months=${range === 0 ? 12 : range}${roomQuery}`
+  );
+
+  const rooms: Room[] = [
+    { id: null, name: "Persönlich", color: "#3b82f6", rest: summary?.rest },
+    ...shared.map((x) => ({
+      id: x.account.id,
+      name: x.account.name,
+      color: x.account.color,
+      rest: x.rest,
+    })),
+  ];
+  const selectRoom = (id: number | null) => {
+    const next = new URLSearchParams(params);
+    if (id === null) next.delete("raum");
+    else next.set("raum", String(id));
+    setParams(next, { replace: true });
+  };
 
   const isEmpty = !loading && stats && stats.monthly.length === 0;
+
+  // Nur zum Zeichnen zusammengeführt. Die Serie fließt bewusst **nicht** in `net`
+  // und nicht in die Kopf-Kacheln: sonst stünde derselbe Dauerauftrag zweimal in
+  // einer Zahl — einmal als geplante Fixkostenposition, einmal als Übertragung.
+  const transferByMonth = new Map((stats?.transfers ?? []).map((t) => [t.month, t.net]));
+  const chartMonths = (stats?.monthly ?? []).map((m) => ({
+    ...m,
+    transferNet: transferByMonth.get(m.month) ?? 0,
+  }));
+  const hasTransfers = chartMonths.some((m) => m.transferNet !== 0);
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -102,6 +153,8 @@ export default function Statistics() {
           ))}
         </div>
       </div>
+
+      <RoomTiles rooms={rooms} active={room} onSelect={selectRoom} />
 
       {/* Loading */}
       {loading && (
@@ -164,7 +217,7 @@ export default function Statistics() {
             </h2>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart
-                data={stats.monthly}
+                data={chartMonths}
                 margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -190,11 +243,22 @@ export default function Statistics() {
                 <Legend
                   wrapperStyle={{ fontSize: 12, color: "#9ca3af" }}
                   formatter={(value) =>
-                    value === "income" ? "Einnahmen" : "Ausgaben"
+                    value === "income"
+                      ? "Einnahmen"
+                      : value === "expenses"
+                      ? "Ausgaben"
+                      : "Übertragungen (netto)"
                   }
                 />
                 <Bar dataKey="income" name="income" fill="#22c55e" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="expenses" name="expenses" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                {/* Nur raumkreuzende Übertragungen: eine Umbuchung innerhalb desselben
+                    Raums ist internes Umschichten und fällt heraus. Der Balken erscheint
+                    nur, wenn es tatsächlich solche gibt — ein dauerhaft leerer Balken
+                    behauptet „keine Übertragungen". */}
+                {hasTransfers && (
+                  <Bar dataKey="transferNet" name="transferNet" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                )}
                 {stats.monthlyRecurringExpenses != null && stats.monthlyRecurringExpenses > 0 && (
                   <ReferenceLine
                     y={stats.monthlyRecurringExpenses}

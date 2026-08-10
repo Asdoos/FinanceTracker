@@ -14,8 +14,39 @@ type ExpenseItem = {
   isActive: boolean;
   dueMonth?: number | null;
   category: { id: number; name: string; color: string } | null;
-  account: { id: number; name: string; color: string } | null;
+  account: { id: number; name: string; color: string; isShared?: boolean } | null;
 };
+
+/**
+ * Der Kalender **bricht das Raum-Prinzip bewusst** und mischt alle Räume.
+ *
+ * Er ist Liquiditäts-Vorschau und hat keine raumgebundene Bezugsgröße, die eine
+ * Mischung verfälschen könnte — anders als Dashboard oder Statistik, wo der Rest und
+ * Kategoriensätze raumgebunden sind. Er ignoriert deshalb auch die Raum-Auswahl.
+ *
+ * Gekennzeichnet wird nicht der **Eintrag**, sondern die **Gruppe**: die
+ * Gruppierung *ist* die Kennzeichnung. Bezahlt wird das mit dem Verlust der
+ * Chronologie innerhalb des Monats — die Einträge tragen ohnehin nur `due_month`,
+ * keinen Tag.
+ */
+type RoomGroup = { key: string; label: string; items: ExpenseItem[]; total: number };
+
+function groupByRoom(items: ExpenseItem[]): RoomGroup[] {
+  const groups = new Map<string, RoomGroup>();
+  for (const e of items) {
+    const shared = !!e.account?.isShared;
+    // Persönlich zuerst, danach je Gemeinschaftskonto.
+    const key = shared ? "shared-" + e.account!.id : "personal";
+    const label = shared ? e.account!.name : "Persönlich";
+    if (!groups.has(key)) groups.set(key, { key, label, items: [], total: 0 });
+    const g = groups.get(key)!;
+    g.items.push(e);
+    g.total += e.amount;
+  }
+  return [...groups.values()].sort((a, b) =>
+    a.key === "personal" ? -1 : b.key === "personal" ? 1 : a.label.localeCompare(b.label, "de")
+  );
+}
 
 export default function Calendar() {
   const { data: expenses, loading, error } = useApi<ExpenseItem[]>("/expenses");
@@ -47,7 +78,7 @@ export default function Calendar() {
         <div>
           <h2 className="text-xl font-semibold text-white">Jahreskalender</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Fälligkeiten jährlicher Ausgaben
+            Fälligkeiten jährlicher Ausgaben — über alle Räume, als Liquiditäts-Vorschau
           </p>
         </div>
         <div className="text-xs text-gray-600 hidden md:flex gap-4">
@@ -97,21 +128,37 @@ export default function Calendar() {
               </div>
 
               {/* Expense items */}
-              <div className="flex flex-col gap-1 flex-1 min-h-[2rem]">
+              <div className="flex flex-col gap-2 flex-1 min-h-[2rem]">
                 {items.length === 0 ? (
                   <span className="text-xs text-gray-700">–</span>
                 ) : (
-                  items.map((e) => (
-                    <div key={e.id} className="flex items-start gap-1.5">
-                      {e.category && (
-                        <span
-                          className="w-2 h-2 rounded-full flex-shrink-0 mt-1"
-                          style={{ backgroundColor: e.category.color }}
-                        />
+                  groupByRoom(items).map((group, gi, all) => (
+                    <div key={group.key} className={gi > 0 ? "pt-1.5 border-t border-gray-800/50" : ""}>
+                      {/* Mini-Überschrift nur, wenn es überhaupt mehr als einen Raum
+                          gibt — sonst wäre „Persönlich" über allem reines Rauschen. */}
+                      {all.length > 1 && (
+                        <div className="flex items-baseline justify-between gap-2 mb-1">
+                          <span className="text-[10px] uppercase tracking-wide text-gray-500 truncate">
+                            {group.label}
+                          </span>
+                          <span className="text-[10px] text-gray-600 shrink-0">{eur(group.total)}</span>
+                        </div>
                       )}
-                      <div className="min-w-0">
-                        <p className="text-xs text-gray-300 truncate leading-tight">{e.label}</p>
-                        <p className="text-xs text-gray-600">{eur(e.amount)}</p>
+                      <div className="flex flex-col gap-1">
+                        {group.items.map((e) => (
+                          <div key={e.id} className="flex items-start gap-1.5">
+                            {e.category && (
+                              <span
+                                className="w-2 h-2 rounded-full flex-shrink-0 mt-1"
+                                style={{ backgroundColor: e.category.color }}
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs text-gray-300 truncate leading-tight">{e.label}</p>
+                              <p className="text-xs text-gray-600">{eur(e.amount)}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))
