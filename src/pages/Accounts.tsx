@@ -3,8 +3,18 @@ import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur } from "../lib/format";
 import { errorMessage } from "../lib/errors";
-import { Plus, Pencil, Trash2, Check, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, AlertTriangle, Wallet, TrendingUp, Users, Share2 } from "lucide-react";
 import { Modal } from "../components/Modal";
+import {
+  ConvertDialog,
+  FreibetragByMember,
+  InvitationCard,
+  MembersPanel,
+  MemberStack,
+  type FreibetragMember,
+  type Invitation,
+} from "../components/Members";
+import { useAuth } from "../context/AuthContext";
 
 const TAX_RATE = 0.26375; // Abgeltungssteuer 25% + Soli 5,5%
 
@@ -104,6 +114,9 @@ type Account = {
   interestInterval?: string | null;
   actualBalance?: number | null;
   actualBalanceDate?: string | null;
+  isShared?: boolean;
+  /** Nur an Gemeinschaftskonten: alle Mitglieder-Freibeträge aufgeschlüsselt. */
+  freibetragByMember?: FreibetragMember[];
 };
 
 type AccountSummary = {
@@ -122,6 +135,8 @@ type AccountSummary = {
 type Summary = {
   totalFreibetrag: number;
   byAccount: AccountSummary[];
+  /** Gemeinschaftskonten stehen seit v0.26 in einer eigenen Liste. */
+  sharedAccounts?: AccountSummary[];
 };
 
 const PRESET_COLORS = [
@@ -135,6 +150,7 @@ const INITIAL_FORM = {
   name: "",
   color: "#3b82f6",
   description: "",
+  isShared: false,
   freibetrag: "",
   freibetragYear: "",
   interestRate: "",
@@ -147,14 +163,21 @@ export default function Accounts() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [balanceModal, setBalanceModal] = useState<Account | null>(null);
-  const modalOpen = showAdd || editId !== null || balanceModal !== null;
+  const [membersFor, setMembersFor] = useState<Account | null>(null);
+  const [convertFor, setConvertFor] = useState<Account | null>(null);
+  const modalOpen =
+    showAdd || editId !== null || balanceModal !== null || membersFor !== null || convertFor !== null;
   // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
   // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
   // Formular haben sich verschoben — schlimmer als veraltet.
 
   const { data: accounts, error: accountsError, refetch: refetchAccounts } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  // Offene Einladungen stehen in der Kontoliste selbst — eine Einladung *ist*
+  // ein Konto in spe, kein Posteingang.
+  const { data: invitations, refetch: refetchInvitations } = useApi<Invitation[]>("/invitations", { paused: modalOpen });
   const { data: summary, error: summaryError, refetch: refetchSummary } = useApi<Summary>("/summary", { paused: modalOpen });
 
+  const { user } = useAuth();
   const today = new Date().toISOString().slice(0, 10);
 
   const [form, setForm] = useState(INITIAL_FORM);
@@ -195,8 +218,10 @@ export default function Accounts() {
     );
   }
 
+  // Beide Listen: die Konten-Seite zeigt persönliche und geteilte Konten
+  // nebeneinander, die Summary trennt sie.
   const accSummaryMap = Object.fromEntries(
-    summary.byAccount.map((b) => [b.account.id, b])
+    [...summary.byAccount, ...(summary.sharedAccounts ?? [])].map((b) => [b.account.id, b])
   );
 
   const currentYear = new Date().getFullYear();
@@ -220,6 +245,7 @@ export default function Accounts() {
       name: a.name,
       color: a.color,
       description: a.description ?? "",
+      isShared: !!a.isShared,
       freibetrag: a.freibetrag != null ? String(a.freibetrag) : "",
       freibetragYear: a.freibetragYear != null ? String(a.freibetragYear) : "",
       interestRate: a.interestRate != null ? String(a.interestRate) : "",
@@ -240,6 +266,9 @@ export default function Accounts() {
         name: form.name,
         color: form.color,
         description: form.description || undefined,
+        // Nur beim Anlegen: die Umwandlung eines bestehenden Kontos läuft über
+        // einen eigenen Endpoint, damit sie nicht versehentlich auslösbar ist.
+        ...(editId ? {} : { isShared: form.isShared }),
         freibetrag: form.freibetrag ? parseFloat(form.freibetrag) : null,
         freibetragYear: form.freibetragYear ? parseInt(form.freibetragYear) : null,
         interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
@@ -325,6 +354,18 @@ export default function Accounts() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Offene Einladungen zuerst — eine Einladung *ist* ein Konto in spe. */}
+        {(invitations ?? []).map((inv) => (
+          <InvitationCard
+            key={inv.accountId}
+            invitation={inv}
+            onChanged={() => {
+              refetchInvitations();
+              refetchAccounts();
+              refetchSummary();
+            }}
+          />
+        ))}
         {accounts.map((account) => {
           const s = accSummaryMap[account.id];
           const hasFreibetrag = account.freibetrag != null && account.freibetrag > 0;
@@ -344,7 +385,12 @@ export default function Accounts() {
                     {account.name[0]}
                   </div>
                   <div>
-                    <div className="font-semibold text-white">{account.name}</div>
+                    <div className="font-semibold text-white flex items-center gap-2">
+                      {account.name}
+                      {account.isShared && (
+                        <MemberStack members={account.freibetragByMember ?? []} />
+                      )}
+                    </div>
                     {account.description && (
                       <div className="text-xs text-gray-500">{account.description}</div>
                     )}
@@ -390,6 +436,25 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="flex gap-1">
+                  {account.isShared ? (
+                    <button
+                      onClick={() => setMembersFor(account)}
+                      aria-label="Mitglieder"
+                      title="Mitglieder verwalten"
+                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                    >
+                      <Users size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConvertFor(account)}
+                      aria-label="In Gemeinschaftskonto umwandeln"
+                      title="In Gemeinschaftskonto umwandeln"
+                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                    >
+                      <Share2 size={14} />
+                    </button>
+                  )}
                   <button
                     onClick={() => openEdit(account)}
                     aria-label="Bearbeiten"
@@ -584,10 +649,45 @@ export default function Accounts() {
                   </div>
                 </>
               )}
+
+              {/* Am Gemeinschaftskonto je Mitglied aufgeschlüsselt — die
+                  Netto-Zinsprojektion rechnet die Summe gegen den Bruttozins. */}
+              {account.isShared && (
+                <FreibetragByMember
+                  members={account.freibetragByMember ?? []}
+                  myUserId={user?.id ?? -1}
+                />
+              )}
             </div>
           );
         })}
       </div>
+
+      {membersFor && (
+        <MembersPanel
+          accountId={membersFor.id}
+          accountName={membersFor.name}
+          myUserId={user?.id ?? -1}
+          onClose={() => setMembersFor(null)}
+          onChanged={() => {
+            refetchAccounts();
+            refetchSummary();
+          }}
+        />
+      )}
+
+      {convertFor && (
+        <ConvertDialog
+          accountId={convertFor.id}
+          accountName={convertFor.name}
+          onClose={() => setConvertFor(null)}
+          onDone={() => {
+            refetchAccounts();
+            refetchSummary();
+          }}
+          onCreateNew={openAdd}
+        />
+      )}
 
       {/* Balance Modal */}
       {balanceModal && (
@@ -664,6 +764,27 @@ export default function Accounts() {
                 className="input"
               />
             </div>
+
+            {/* Nur beim Anlegen: ein bestehendes Konto wird über den eigenen
+                Umwandlungs-Endpoint geteilt, nicht über dieses Feld. */}
+            {editId === null && (
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.isShared}
+                  onChange={(e) => setForm((f) => ({ ...f, isShared: e.target.checked }))}
+                  className="mt-0.5 accent-blue-500"
+                />
+                <span className="text-sm text-gray-300">
+                  Gemeinschaftskonto
+                  <span className="block text-xs text-gray-500">
+                    Du kannst danach andere per E-Mail einladen. Das Konto startet mit
+                    einer eigenen Kategorie „Sonstiges" — Kategorien eines
+                    Gemeinschaftskontos sind von den persönlichen getrennt.
+                  </span>
+                </span>
+              </label>
+            )}
 
             <div className="space-y-2">
               <label className="text-xs text-gray-400 font-medium">Farbe</label>
