@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { useApi, api } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, ListPlus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { parseRoom, RoomRail, type Room } from "../components/RoomSwitcher";
+import { CategoryPicker } from "../components/CategoryPicker";
 import { Modal } from "../components/Modal";
 
 type Category = {
@@ -35,7 +36,8 @@ const eurMonth = (v: number) =>
 export default function Categories() {
   // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
   const [editId, setEditId] = useState<number | null>(null);
-  const modalOpen = editId !== null;
+  const [showPicker, setShowPicker] = useState(false);
+  const modalOpen = editId !== null || showPicker;
   // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
   // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
   // Formular haben sich verschoben — schlimmer als veraltet.
@@ -167,12 +169,24 @@ export default function Categories() {
     <div className="p-3 md:p-6 space-y-4 md:space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-white">Kategorien</h2>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
-        >
-          <Plus size={15} /> Kategorie hinzufügen
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Nur im Gemeinschaftsraum: der persönliche Satz existiert schon, ein
+              geteilter startet bei genau einer Kategorie „Sonstiges". */}
+          {room !== null && (
+            <button
+              onClick={() => setShowPicker(true)}
+              className="flex items-center gap-2 px-3 py-2 border border-gray-700 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
+            >
+              <ListPlus size={15} /> Aus persönlichem Satz übernehmen
+            </button>
+          )}
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium"
+          >
+            <Plus size={15} /> Kategorie hinzufügen
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-5 items-start">
@@ -246,6 +260,19 @@ export default function Categories() {
       )}
         </div>
       </div>
+
+      {showPicker && room !== null && (
+        <CategoryPicker
+          accountId={room}
+          accountName={rooms.find((r) => r.id === room)?.name ?? "Gemeinschaftskonto"}
+          personal={(categories ?? [])
+            .filter((c) => c.accountId == null)
+            .map((c) => ({ name: c.name, color: c.color, icon: c.icon, budget: c.budget }))}
+          existing={roomCategories.map((c) => c.name)}
+          onClose={() => setShowPicker(false)}
+          onCreated={refetch}
+        />
+      )}
 
       {showModal && (
         <Modal

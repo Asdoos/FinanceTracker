@@ -66,8 +66,10 @@ export function MemberStack({ members }: { members: { userId: number; displayNam
  * Nur der Owner darf einladen und entfernen; Mitglieder dürfen alles Fachliche,
  * aber die Mitgliederliste nicht ändern. **Keine Nur-Lesen-Rolle.** Wer austritt,
  * verliert nur die Sicht — Buchungen und Fixkosten gehören dem *Konto*.
+ *
+ * Steht als Reiter der Konten-Seite, deshalb ohne eigenen Rahmen.
  */
-export function MembersPanel({
+export function MembersBody({
   accountId,
   accountName,
   myUserId,
@@ -77,6 +79,7 @@ export function MembersPanel({
   accountId: number;
   accountName: string;
   myUserId: number;
+  /** Wird nach einem Selbst-Austritt gerufen; im Reiter darf das ein No-op sein. */
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -122,7 +125,7 @@ export function MembersPanel({
   }
 
   return (
-    <Modal title={`Mitglieder — ${accountName}`} onClose={onClose} maxWidth="md">
+    <div className="space-y-4">
       <div className="space-y-2">
         {(members ?? []).map((m) => {
           const self = m.userId === myUserId;
@@ -195,7 +198,7 @@ export function MembersPanel({
           Nur der Eigentümer kann Mitglieder einladen oder entfernen.
         </p>
       )}
-    </Modal>
+    </div>
   );
 }
 

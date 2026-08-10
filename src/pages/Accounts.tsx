@@ -9,7 +9,7 @@ import {
   ConvertDialog,
   FreibetragByMember,
   InvitationCard,
-  MembersPanel,
+  MembersBody,
   MemberStack,
   type FreibetragMember,
   type Invitation,
@@ -144,6 +144,8 @@ const PRESET_COLORS = [
   "#ef4444", "#06b6d4", "#ec4899", "#84cc16",
 ];
 
+type Tab = "stammdaten" | "mitglieder" | "freibetrag";
+
 const FREIBETRAG_LIMIT = 1000;
 
 const INITIAL_FORM = {
@@ -163,10 +165,10 @@ export default function Accounts() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [balanceModal, setBalanceModal] = useState<Account | null>(null);
-  const [membersFor, setMembersFor] = useState<Account | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [tab, setTab] = useState<Tab>("stammdaten");
   const [convertFor, setConvertFor] = useState<Account | null>(null);
-  const modalOpen =
-    showAdd || editId !== null || balanceModal !== null || membersFor !== null || convertFor !== null;
+  const modalOpen = showAdd || editId !== null || balanceModal !== null || convertFor !== null;
   // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
   // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
   // Formular haben sich verschoben — schlimmer als veraltet.
@@ -223,6 +225,17 @@ export default function Accounts() {
   const accSummaryMap = Object.fromEntries(
     [...summary.byAccount, ...(summary.sharedAccounts ?? [])].map((b) => [b.account.id, b])
   );
+
+  // Master/Detail: ohne Vorauswahl gäbe es rechts nichts zu zeigen.
+  const selected =
+    accounts.find((a) => a.id === selectedId) ?? accounts[0] ?? null;
+  // „Mitglieder" entfällt an persönlichen Konten — dort gibt es keine.
+  const tabs: Tab[] = selected?.isShared
+    ? ["stammdaten", "mitglieder", "freibetrag"]
+    : ["stammdaten", "freibetrag"];
+  // Wechselt man von einem geteilten auf ein persönliches Konto, fällt der Reiter
+  // „Mitglieder" weg — die Auswahl muss dann auf „Stammdaten" zurückfallen.
+  const activeTab: Tab = tabs.includes(tab) ? tab : "stammdaten";
 
   const currentYear = new Date().getFullYear();
 
@@ -353,20 +366,124 @@ export default function Accounts() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Offene Einladungen zuerst — eine Einladung *ist* ein Konto in spe. */}
-        {(invitations ?? []).map((inv) => (
-          <InvitationCard
-            key={inv.accountId}
-            invitation={inv}
-            onChanged={() => {
-              refetchInvitations();
-              refetchAccounts();
-              refetchSummary();
-            }}
-          />
-        ))}
-        {accounts.map((account) => {
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* ── Master: die Kontoliste ─────────────────────────────────────── */}
+        <div className="w-full lg:w-72 shrink-0 space-y-2">
+          {accounts.map((a) => {
+            const isActive = selected?.id === a.id;
+            const sum = accSummaryMap[a.id];
+            return (
+              <button
+                key={a.id}
+                onClick={() => { setSelectedId(a.id); setTab("stammdaten"); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${
+                  isActive
+                    ? "bg-gray-800 border-gray-600"
+                    : "bg-gray-900 border-gray-800 hover:border-gray-700"
+                }`}
+              >
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
+                    style={{ backgroundColor: a.color }}
+                  >
+                    {a.name[0]}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-sm truncate ${isActive ? "text-white" : "text-gray-300"}`}>
+                      {a.name}
+                    </span>
+                    {a.isShared ? (
+                      <MemberStack members={a.freibetragByMember ?? []} />
+                    ) : (
+                      sum?.calculatedBalance != null && (
+                        <span className="block text-xs text-gray-500">
+                          {eur(sum.calculatedBalance)}
+                        </span>
+                      )
+                    )}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+
+          {/* Offene Einladungen stehen in der Liste selbst — eine Einladung *ist*
+              ein Konto in spe, kein Posteingang. */}
+          {(invitations ?? []).map((inv) => (
+            <InvitationCard
+              key={inv.accountId}
+              invitation={inv}
+              onChanged={() => {
+                refetchInvitations();
+                refetchAccounts();
+                refetchSummary();
+              }}
+            />
+          ))}
+        </div>
+
+        {/* ── Detail: Reiter des gewählten Kontos ────────────────────────── */}
+        <div className="flex-1 min-w-0 w-full space-y-4">
+          <div className="flex gap-1 p-1 bg-gray-800/50 rounded-xl w-fit">
+            {tabs.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  activeTab === t
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-400 hover:text-gray-200 hover:bg-gray-800"
+                }`}
+              >
+                {t === "stammdaten" ? "Stammdaten" : t === "mitglieder" ? "Mitglieder" : "Freibetrag"}
+              </button>
+            ))}
+          </div>
+
+          {selected && activeTab === "mitglieder" && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <MembersBody
+                accountId={selected.id}
+                accountName={selected.name}
+                myUserId={user?.id ?? -1}
+                onClose={() => { setSelectedId(null); setTab("stammdaten"); }}
+                onChanged={() => { refetchAccounts(); refetchSummary(); }}
+              />
+            </div>
+          )}
+
+          {selected && activeTab === "freibetrag" && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2">
+              {selected.freibetrag != null && selected.freibetrag > 0 ? (
+                <p className="text-sm text-gray-300">
+                  Dein Freibetrag an diesem Konto:{" "}
+                  <span className="font-medium text-white">{eur(selected.freibetrag)}</span> / Jahr
+                  {selected.freibetragYear != null && (
+                    <span className="text-gray-500"> (bis {selected.freibetragYear})</span>
+                  )}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Für dieses Konto ist kein Freibetrag hinterlegt.
+                </p>
+              )}
+              <button
+                onClick={() => openEdit(selected)}
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Meinen Freibetrag ändern
+              </button>
+              {selected.isShared && (
+                <FreibetragByMember
+                  members={selected.freibetragByMember ?? []}
+                  myUserId={user?.id ?? -1}
+                />
+              )}
+            </div>
+          )}
+
+          {activeTab === "stammdaten" && (selected ? [selected] : []).map((account) => {
           const s = accSummaryMap[account.id];
           const hasFreibetrag = account.freibetrag != null && account.freibetrag > 0;
           const fbExpired = hasFreibetrag && account.freibetragYear != null && account.freibetragYear < currentYear;
@@ -438,7 +555,7 @@ export default function Accounts() {
                 <div className="flex gap-1">
                   {account.isShared ? (
                     <button
-                      onClick={() => setMembersFor(account)}
+                      onClick={() => setTab("mitglieder")}
                       aria-label="Mitglieder"
                       title="Mitglieder verwalten"
                       className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
@@ -650,31 +767,11 @@ export default function Accounts() {
                 </>
               )}
 
-              {/* Am Gemeinschaftskonto je Mitglied aufgeschlüsselt — die
-                  Netto-Zinsprojektion rechnet die Summe gegen den Bruttozins. */}
-              {account.isShared && (
-                <FreibetragByMember
-                  members={account.freibetragByMember ?? []}
-                  myUserId={user?.id ?? -1}
-                />
-              )}
             </div>
           );
         })}
+        </div>
       </div>
-
-      {membersFor && (
-        <MembersPanel
-          accountId={membersFor.id}
-          accountName={membersFor.name}
-          myUserId={user?.id ?? -1}
-          onClose={() => setMembersFor(null)}
-          onChanged={() => {
-            refetchAccounts();
-            refetchSummary();
-          }}
-        />
-      )}
 
       {convertFor && (
         <ConvertDialog
