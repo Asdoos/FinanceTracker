@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight } from "lucide-react";
+import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight, ArrowLeftRight } from "lucide-react";
 
 const FREIBETRAG_LIMIT = 1000;
 
@@ -22,6 +22,8 @@ type Summary = {
   totalFreibetrag: number;
   transactionExpensesThisMonth: number;
   transactionIncomeThisMonth: number;
+  transactionTransfersOutThisMonth: number;
+  transactionTransfersInThisMonth: number;
   byAccount: {
     account: {
       id: number;
@@ -169,6 +171,44 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+          </Link>
+        );
+      })()}
+
+      {/* Übertragungen dieses Monats — getrennt statt netto: 1.000 € raus und
+          1.000 € rein ist etwas anderes als keine Bewegung. Sie stehen bewusst
+          neben den Summen, nicht darin: `rest` speist sich aus der Planungsebene
+          und kann von einer Buchung nicht berührt werden. */}
+      {(summary.transactionTransfersOutThisMonth > 0 || summary.transactionTransfersInThisMonth > 0) && (() => {
+        const currentMonth = new Date().toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+        return (
+          <Link
+            to="/transactions"
+            className="block bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <ArrowLeftRight size={15} className="text-blue-400" />
+              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                Übertragungen ({currentMonth})
+              </h3>
+            </div>
+            <div className="flex gap-6">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Abgeflossen</p>
+                <p className="text-base font-semibold text-gray-200">
+                  {eur(summary.transactionTransfersOutThisMonth)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Zugeflossen</p>
+                <p className="text-base font-semibold text-gray-200">
+                  {eur(summary.transactionTransfersInThisMonth)}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Umbuchungen zwischen Konten — nicht in Ausgaben, Einnahmen oder Rest enthalten.
+            </p>
           </Link>
         );
       })()}

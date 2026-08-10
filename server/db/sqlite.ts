@@ -134,12 +134,27 @@ function runSqliteMigrations(db: Database.Database, dbPath: string): void {
     // „Schritt lief, Marke fehlt" geben.
     const apply = db.transaction(() => {
       for (const sql of step.sqlite) db.exec(sql);
+      if (step.sqliteRebuild) {
+        // Vor dem Commit prüfen, sonst bleibt ein zerrissener Fremdschlüssel still.
+        const violations = db.prepare("PRAGMA foreign_key_check").all();
+        if (violations.length > 0) {
+          throw new Error(
+            `foreign_key_check meldet ${violations.length} Verletzung(en): ${JSON.stringify(violations.slice(0, 3))}`
+          );
+        }
+      }
       mark.run(step.version);
     });
+
+    // Ein PRAGMA innerhalb einer Transaktion ist wirkungslos — der Schalter muss
+    // außen herum liegen.
+    if (step.sqliteRebuild) db.pragma("foreign_keys = OFF");
     try {
       apply();
     } catch (err) {
       throw migrationFailed(step, err);
+    } finally {
+      if (step.sqliteRebuild) db.pragma("foreign_keys = ON");
     }
     console.log(`[DB] Migration ${step.version} angewendet: ${step.name}`);
   }

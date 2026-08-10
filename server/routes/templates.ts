@@ -7,6 +7,7 @@ const router = Router();
 const TemplateCreateSchema = z.object({
   label: z.string().min(1),
   amount: z.number().positive(),
+  // eslint-disable-next-line no-restricted-syntax -- Vorlagen kennen keinen Transfer-Typ (out of scope der Map)
   type: z.enum(["income", "expense"]),
   categoryId: z.number().int().nullable().optional(),
   accountId: z.number().int(),

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { EXCLUDE_TRANSFERS_SQL } from "../lib/transactions";
 
 const router = Router();
 
@@ -22,7 +23,10 @@ router.get("/", async (req, res, next) => {
 
     // ── 1. Monthly totals ───────────────────────────────────────────────
     const monthlyParams: any[] = [userId];
-    let monthlyWhere = "WHERE user_id = ?";
+    // Übertragungen fallen auf SQL-Ebene heraus. Der `else`-Zweig unten machte
+    // bisher alles Unbekannte zur Ausgabe — ein Transfer wäre dort stillschweigend
+    // gelandet.
+    let monthlyWhere = `WHERE user_id = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
     if (cutoff) {
       monthlyWhere += " AND date >= ?";
       monthlyParams.push(cutoff);
@@ -44,6 +48,7 @@ router.get("/", async (req, res, next) => {
         monthMap.set(row.month, { income: 0, expenses: 0 });
       }
       const entry = monthMap.get(row.month)!;
+      // eslint-disable-next-line no-restricted-syntax -- Auslesen einer nach `type` gruppierten SQL-Summe; Übertragungen sind bereits per WHERE ausgeschlossen und können den else-Zweig nicht mehr treffen
       if (row.type === "income") entry.income = Number(row.total);
       else entry.expenses = Number(row.total);
     }
@@ -126,7 +131,7 @@ router.get("/budget-comparison", async (req, res, next) => {
     const { rows: txRows } = await db.query(
       `SELECT substr(date, 1, 7) AS month, type, SUM(amount) AS total
        FROM transactions
-       WHERE user_id = ? AND substr(date, 1, 7) >= ?
+       WHERE user_id = ? AND substr(date, 1, 7) >= ? AND ${EXCLUDE_TRANSFERS_SQL}
        GROUP BY substr(date, 1, 7), type`,
       [userId, monthList[0]]
     );
@@ -134,6 +139,7 @@ router.get("/budget-comparison", async (req, res, next) => {
     for (const r of txRows as any[]) {
       if (!txMap.has(r.month)) txMap.set(r.month, { income: 0, expenses: 0 });
       const e = txMap.get(r.month)!;
+      // eslint-disable-next-line no-restricted-syntax -- Auslesen einer nach `type` gruppierten SQL-Summe; Übertragungen sind bereits per WHERE ausgeschlossen und können den else-Zweig nicht mehr treffen
       if (r.type === "income") e.income = Number(r.total);
       else e.expenses = Number(r.total);
     }

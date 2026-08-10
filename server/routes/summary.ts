@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getDb } from "../db";
+import { EXCLUDE_TRANSFERS_SQL, signedAmount } from "../lib/transactions";
 
 const router = Router();
 
@@ -20,19 +21,37 @@ router.get("/", async (req, res, next) => {
     // ── Current-month transaction sums ──
     const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
     const { rows: txRows } = await db.query(
-      "SELECT type, SUM(amount) AS total FROM transactions WHERE user_id = ? AND date LIKE ? GROUP BY type",
+      `SELECT type, SUM(amount) AS total FROM transactions WHERE user_id = ? AND date LIKE ? AND ${EXCLUDE_TRANSFERS_SQL} GROUP BY type`,
       [userId, `${currentMonth}-%`]
     );
 
     // ── All transactions for balance tracking ──
+    // `counter_account_id` gehört zwingend dazu: ohne diese Spalte wäre der Zufluss
+    // einer Übertragung auf dem Zielkonto unsichtbar und dessen Saldo dauerhaft falsch.
     const { rows: allTxRows } = await db.query(
-      "SELECT account_id, date, type, amount FROM transactions WHERE user_id = ?",
+      "SELECT account_id, counter_account_id, date, type, amount FROM transactions WHERE user_id = ?",
       [userId]
     );
-    const transactionExpensesThisMonth =
-      txRows.find((r: any) => r.type === "expense")?.total ?? 0;
-    const transactionIncomeThisMonth =
-      txRows.find((r: any) => r.type === "income")?.total ?? 0;
+    const byType = (t: string) => txRows.find((r: any) => r.type === t)?.total ?? 0;
+    // eslint-disable-next-line no-restricted-syntax -- Auslesen der nach `type` gruppierten SQL-Summe; Übertragungen stehen daneben in eigenen Kennzahlen
+    const transactionExpensesThisMonth = byType("expense");
+    // eslint-disable-next-line no-restricted-syntax -- wie oben
+    const transactionIncomeThisMonth = byType("income");
+
+    // ── Übertragungen des laufenden Monats — getrennt, nicht netto ──
+    // 1.000 € raus und 1.000 € rein ist etwas anderes als keine Bewegung; netto
+    // wäre beides 0 und die Umbuchung unsichtbar. Sie stehen bewusst **außerhalb**
+    // von `totalMonthlyExpenses` und `rest`: `rest` speist sich aus der
+    // Planungsebene und kann von einer Buchung per Konstruktion nicht berührt werden.
+    const monthTransfers = allTxRows.filter(
+      (tx: any) => tx.type === "transfer" && String(tx.date).startsWith(currentMonth)
+    );
+    const sumAmounts = (rows: any[]) => rows.reduce((s: number, tx: any) => s + Number(tx.amount), 0);
+    const accountIds = new Set(accounts.map((a: any) => Number(a.id)));
+    const transactionTransfersOutThisMonth = sumAmounts(monthTransfers);
+    const transactionTransfersInThisMonth = sumAmounts(
+      monthTransfers.filter((tx: any) => accountIds.has(Number(tx.counter_account_id)))
+    );
 
     const accMap = Object.fromEntries(accounts.map((a: any) => [a.id, a]));
     const catMap = Object.fromEntries(categories.map((c: any) => [c.id, c]));
@@ -86,11 +105,11 @@ router.get("/", async (req, res, next) => {
         // Strikt `>`: der Anker gilt für das **Ende** des genannten Tages. Buchungen
         // *am* Ankertag stecken bereits im abgelesenen Saldo — der bisherige `>=`
         // addierte sie ein zweites Mal.
+        // `signedAmount` liefert 0 für Zeilen, die dieses Konto nicht berühren —
+        // deshalb darf hier ungefiltert über beide Konto-Spalten reduziert werden.
         const netSince = allTxRows
-          .filter((tx: any) => tx.account_id === account.id && tx.date > refDate)
-          .reduce((sum: number, tx: any) =>
-            sum + (tx.type === "income" ? tx.amount : -tx.amount), 0
-          );
+          .filter((tx: any) => tx.date > refDate)
+          .reduce((sum: number, tx: any) => sum + signedAmount(tx, Number(account.id)), 0);
         calculatedBalance = actualBalance + netSince;
         balanceDelta = netSince; // net movement since reference date
       }
@@ -186,6 +205,8 @@ router.get("/", async (req, res, next) => {
       totalFreibetrag,
       transactionExpensesThisMonth,
       transactionIncomeThisMonth,
+      transactionTransfersOutThisMonth,
+      transactionTransfersInThisMonth,
       byAccount,
       byCategory,
       expenses: enrichedExpenses,

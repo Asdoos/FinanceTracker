@@ -5,11 +5,30 @@ import type { IncomingMessage, ServerResponse } from "http";
 import crypto from "crypto";
 import { getDb } from "./db";
 import { BOOL_PARAM } from "./db/sql";
+import { EXCLUDE_TRANSFERS_SQL, signedAmount } from "./lib/transactions";
 
 const sessions = new Map<string, SSEServerTransport>();
 
 const toMonthly = (amount: number, type: string) =>
   type === "annual" ? amount / 12 : amount;
+
+/**
+ * Ändern und Löschen von Übertragungen bleibt der Oberfläche vorbehalten.
+ *
+ * Sonst müsste der MCP die Schreibrecht-Differenzierung aus Ticket 12 an einem
+ * zweiten Schreibweg nachbauen — mit dem Risiko, dass die beiden Wege auseinander
+ * driften. Angelegt werden dürfen Transfers über `add_transfer`.
+ */
+function refuseTransfer(currentType: string, nextType?: string) {
+  if (currentType !== "transfer" && nextType !== "transfer") return null;
+  return {
+    content: [{
+      type: "text" as const,
+      text: "Error: Übertragungen können derzeit nur in der Oberfläche bearbeitet werden.",
+    }],
+    isError: true,
+  };
+}
 
 function hashApiKey(key: string): string {
   return crypto.createHash("sha256").update(key).digest("hex");
@@ -394,20 +413,29 @@ function buildServer(userId: number): McpServer {
     "list_transactions",
     "List one-time transactions with category and account info",
     {
-      type: z.enum(["income", "expense"]).optional().describe("Filter by type"),
+      // eslint-disable-next-line no-restricted-syntax -- die Typ-Achse des Werkzeugs; hier stehen die Namen zwangsläufig
+      type: z.enum(["income", "expense", "transfer"]).optional().describe("Filter by type"),
       month: z.string().optional().describe("Filter by month in YYYY-MM format"),
+      accountId: z.number().optional().describe("Only transactions touching this account (transfers count on both ends)"),
     },
-    async ({ type, month }) => {
+    async ({ type, month, accountId }) => {
       try {
         const db = await getDb();
         let sql = `
-          SELECT t.*, c.name AS cat_name, c.color AS cat_color, a.name AS acc_name, a.color AS acc_color
+          SELECT t.*, c.name AS cat_name, c.color AS cat_color, a.name AS acc_name, a.color AS acc_color,
+                 ca.name AS counter_name, ca.color AS counter_color
           FROM transactions t
           LEFT JOIN categories c ON c.id = t.category_id
           LEFT JOIN accounts   a ON a.id = t.account_id
+          LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
           WHERE t.user_id = ?
         `;
         const params: any[] = [userId];
+        if (accountId !== undefined) {
+          // Beide Spalten — eine Übertragung gehört zum Auszug beider Konten.
+          sql += " AND (t.account_id = ? OR t.counter_account_id = ?)";
+          params.push(accountId, accountId);
+        }
         if (type) { sql += " AND t.type = ?"; params.push(type); }
         if (month) { sql += " AND t.date LIKE ?"; params.push(`${month}-%`); }
         sql += " ORDER BY t.date DESC, t.id DESC";
@@ -415,8 +443,14 @@ function buildServer(userId: number): McpServer {
         const result = rows.map((r: any) => ({
           id: r.id, date: r.date, label: r.label, amount: r.amount, type: r.type,
           categoryId: r.category_id, accountId: r.account_id, note: r.note || null,
+          counterAccountId: r.counter_account_id ?? null,
           category: r.cat_name ? { id: r.category_id, name: r.cat_name, color: r.cat_color } : null,
           account: r.acc_name ? { id: r.account_id, name: r.acc_name, color: r.acc_color } : null,
+          // Ohne das Gegenkonto rechnet ein Modell die Summen falsch.
+          counterAccount: r.counter_name
+            ? { id: r.counter_account_id, name: r.counter_name, color: r.counter_color }
+            : null,
+          signedAmount: accountId !== undefined ? signedAmount(r, accountId) : null,
         }));
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
       } catch (err: any) {
@@ -433,6 +467,7 @@ function buildServer(userId: number): McpServer {
       date: z.string().describe("Date in YYYY-MM-DD format"),
       label: z.string().describe("Transaction label/description"),
       amount: z.number().describe("Amount (positive number)"),
+      // eslint-disable-next-line no-restricted-syntax -- Typ-Achse von add_transaction; Übertragungen laufen bewusst über add_transfer
       type: z.enum(["income", "expense"]).describe("Transaction type"),
       accountId: z.number().describe("Account ID"),
       categoryId: z.number().optional().describe("Category ID (optional, mainly for expenses)"),
@@ -453,6 +488,54 @@ function buildServer(userId: number): McpServer {
     }
   );
 
+  // ── add_transfer ───────────────────────────────────────────────────────
+  // Ohne dieses Werkzeug ruft ein Modell auf „buch die 500 € rüber" zwangsläufig
+  // `add_transaction` zweimal auf und produziert frisch genau die Fälschung, die
+  // dieses Release behebt. Das ist kein Komfortverzicht, sondern ein Loch.
+  server.tool(
+    "add_transfer",
+    "Move money between two of your own accounts. Use this instead of two opposite transactions — a transfer is one row and is excluded from income/expense totals.",
+    {
+      date: z.string().describe("Date in YYYY-MM-DD format"),
+      label: z.string().describe("Transfer label/description"),
+      amount: z.number().describe("Amount (positive number)"),
+      sourceAccountId: z.number().describe("Account the money leaves"),
+      targetAccountId: z.number().describe("Account the money arrives in"),
+      note: z.string().optional().describe("Optional note"),
+    },
+    async ({ date, label, amount, sourceAccountId, targetAccountId, note }) => {
+      try {
+        if (sourceAccountId === targetAccountId) {
+          return {
+            content: [{ type: "text" as const, text: "Error: Quelle und Ziel müssen verschiedene Konten sein." }],
+            isError: true,
+          };
+        }
+        const db = await getDb();
+        const { rows } = await db.query(
+          "SELECT id FROM accounts WHERE user_id = ? AND (id = ? OR id = ?)",
+          [userId, sourceAccountId, targetAccountId]
+        );
+        if (rows.length < 2) {
+          return {
+            content: [{ type: "text" as const, text: "Error: Beide Konten müssen dir gehören." }],
+            isError: true,
+          };
+        }
+        // Keine `category_id`: ein Transfer hat zwei Konten in möglicherweise
+        // verschiedenen Kategorienräumen — die Frage „aus welchem Raum" hat keine Antwort.
+        const result = await db.run(
+          `INSERT INTO transactions (date, label, amount, type, category_id, account_id, counter_account_id, note, user_id)
+           VALUES (?, ?, ?, 'transfer', NULL, ?, ?, ?, ?)`,
+          [date, label, amount, sourceAccountId, targetAccountId, note || null, userId]
+        );
+        return { content: [{ type: "text" as const, text: JSON.stringify({ id: result.lastId }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── update_transaction ─────────────────────────────────────────────────
   server.tool(
     "update_transaction",
@@ -462,7 +545,10 @@ function buildServer(userId: number): McpServer {
       date: z.string().optional(),
       label: z.string().optional(),
       amount: z.number().optional(),
-      type: z.enum(["income", "expense"]).optional(),
+      // `transfer` steht hier, damit der Versuch die klare Meldung bekommt statt
+      // eines Schema-Fehlers.
+      // eslint-disable-next-line no-restricted-syntax -- die Typ-Achse des Werkzeugs
+      type: z.enum(["income", "expense", "transfer"]).optional(),
       accountId: z.number().optional(),
       categoryId: z.number().optional().describe("Pass 0 to clear category"),
       note: z.string().optional(),
@@ -470,10 +556,12 @@ function buildServer(userId: number): McpServer {
     async ({ id, date, label, amount, type, accountId, categoryId, note }) => {
       try {
         const db = await getDb();
-        const { rows } = await db.query("SELECT id FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
+        const { rows } = await db.query("SELECT id, type FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
         if (rows.length === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
         };
+        const refusal = refuseTransfer(rows[0].type, type);
+        if (refusal) return refusal;
         const fields: string[] = [];
         const values: any[] = [];
         if (date !== undefined) { fields.push("date = ?"); values.push(date); }
@@ -502,6 +590,9 @@ function buildServer(userId: number): McpServer {
     async ({ id }) => {
       try {
         const db = await getDb();
+        const { rows } = await db.query("SELECT type FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
+        const refusal = rows.length > 0 ? refuseTransfer(rows[0].type) : null;
+        if (refusal) return refusal;
         const result = await db.run("DELETE FROM transactions WHERE id = ? AND user_id = ?", [id, userId]);
         if (result.changes === 0) return {
           content: [{ type: "text" as const, text: `Error: Transaction ${id} not found` }], isError: true
@@ -517,6 +608,7 @@ function buildServer(userId: number): McpServer {
   server.tool(
     "list_templates",
     "List all transaction templates with category and account info",
+    // eslint-disable-next-line no-restricted-syntax -- Vorlagen kennen keinen Transfer-Typ (out of scope der Map)
     { type: z.enum(["income", "expense"]).optional().describe("Filter by type") },
     async ({ type }) => {
       try {
@@ -553,6 +645,7 @@ function buildServer(userId: number): McpServer {
     {
       label: z.string().describe("Template label/name"),
       amount: z.number().describe("Default amount"),
+      // eslint-disable-next-line no-restricted-syntax -- Vorlagen kennen keinen Transfer-Typ (out of scope der Map)
       type: z.enum(["income", "expense"]).describe("Transaction type"),
       accountId: z.number().describe("Account ID"),
       categoryId: z.number().optional().describe("Category ID (optional)"),
@@ -581,6 +674,7 @@ function buildServer(userId: number): McpServer {
       id: z.number().describe("Template ID"),
       label: z.string().optional(),
       amount: z.number().optional(),
+      // eslint-disable-next-line no-restricted-syntax -- Vorlagen kennen keinen Transfer-Typ (out of scope der Map)
       type: z.enum(["income", "expense"]).optional(),
       accountId: z.number().optional(),
       categoryId: z.number().optional().describe("Pass 0 to clear category"),
@@ -682,7 +776,9 @@ function buildServer(userId: number): McpServer {
         }
 
         const monthlyParams: any[] = [userId];
-        let monthlyWhere = "WHERE user_id = ?";
+        // Übertragungen fallen auf SQL-Ebene heraus — der `else`-Zweig unten machte
+        // sonst jede von ihnen zur Ausgabe.
+        let monthlyWhere = `WHERE user_id = ? AND ${EXCLUDE_TRANSFERS_SQL}`;
         if (cutoff) { monthlyWhere += " AND date >= ?"; monthlyParams.push(cutoff); }
 
         const { rows: monthlyRaw } = await db.query(
@@ -696,6 +792,7 @@ function buildServer(userId: number): McpServer {
         for (const row of monthlyRaw as any[]) {
           if (!monthMap.has(row.month)) monthMap.set(row.month, { income: 0, expenses: 0 });
           const e = monthMap.get(row.month)!;
+          // eslint-disable-next-line no-restricted-syntax -- Auslesen einer nach `type` gruppierten SQL-Summe; Übertragungen sind bereits per WHERE ausgeschlossen und können den else-Zweig nicht mehr treffen
           if (row.type === "income") e.income = Number(row.total);
           else e.expenses = Number(row.total);
         }

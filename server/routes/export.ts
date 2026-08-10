@@ -13,6 +13,7 @@ const escape = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 const TRANSACTION_TYPE_LABELS: Record<string, string> = {
   income: "Einnahme",
   expense: "Ausgabe",
+  transfer: "Übertragung",
 };
 const transactionTypeLabel = (type: string) => TRANSACTION_TYPE_LABELS[type] ?? type;
 
@@ -29,17 +30,19 @@ router.get("/transactions", async (req, res, next) => {
     const db = await getDb();
     const { rows } = await db.query(
       `SELECT t.date, t.label, t.amount, t.type, t.note,
-              c.name AS category, a.name AS account
+              c.name AS category, a.name AS account, ca.name AS counter_account
        FROM transactions t
        LEFT JOIN categories c ON c.id = t.category_id
        LEFT JOIN accounts   a ON a.id = t.account_id
+       LEFT JOIN accounts  ca ON ca.id = t.counter_account_id
        WHERE t.user_id = ?
        ORDER BY t.date DESC`,
       [req.user!.id]
     );
-    const header = "Datum;Bezeichnung;Betrag;Typ;Kategorie;Konto;Notiz\n";
+    const header = "Datum;Bezeichnung;Betrag;Typ;Kategorie;Konto;Gegenkonto;Notiz\n";
     const data = (rows as any[]).map((r) => [
-      r.date, r.label, r.amount, transactionTypeLabel(r.type), r.category ?? "", r.account ?? "", r.note ?? "",
+      r.date, r.label, r.amount, transactionTypeLabel(r.type), r.category ?? "",
+      r.account ?? "", r.counter_account ?? "", r.note ?? "",
     ]);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="transaktionen-${today()}.csv"`);

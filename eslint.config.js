@@ -40,6 +40,25 @@ export default tseslint.config(
       // Die Routen arbeiten durchgehend auf den untypisierten Zeilen des
       // DbAdapters — `any` ist dort die Regel, nicht die Ausnahme.
       "@typescript-eslint/no-explicit-any": "off",
+
+      // Jede Verzweigung über `transactions.type` soll auf den Tisch, sobald ein
+      // weiterer Typ dazukommt. Falschpositive sind erwünscht: die Regel soll
+      // nicht recht haben, sie soll den Autor zwingen hinzusehen. Ausnahmen
+      // stehen als `eslint-disable-next-line` **mit Begründung an der Fundstelle**,
+      // nicht in einer zentralen Allowlist.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value='income']",
+          message:
+            "Roher Typ-Name 'income'. Über `transactions.type` wird nicht per Hand verzweigt — nutze signedAmount() oder EXCLUDE_TRANSFERS_SQL aus server/lib/transactions.ts. Bewusste Ausnahme: eslint-disable-next-line mit Begründung.",
+        },
+        {
+          selector: "Literal[value='expense']",
+          message:
+            "Roher Typ-Name 'expense'. Über `transactions.type` wird nicht per Hand verzweigt — nutze signedAmount() oder EXCLUDE_TRANSFERS_SQL aus server/lib/transactions.ts. Bewusste Ausnahme: eslint-disable-next-line mit Begründung.",
+        },
+      ],
     },
   },
 
