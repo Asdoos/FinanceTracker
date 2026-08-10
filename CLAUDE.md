@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Start both frontend + backend dev servers (requires JWT_SECRET)
-JWT_SECRET=your-secret npm run dev:all
+# Start both frontend + backend dev servers
+npm run dev:all
 
 # Frontend only (Vite dev server, proxies /api to backend)
 npm run dev
 
 # Backend only (Express + SQLite, hot-reload via tsx)
-JWT_SECRET=your-secret npm run server
+npm run server
 
 # Production build (runs tsc + vite build)
 npm run build
@@ -25,7 +25,7 @@ No test framework is configured.
 
 ## Environment
 
-- `JWT_SECRET` — **Required.** Secret for JWT token signing (min 32 chars). Server will not start without it.
+- `JWT_SECRET` — **Required.** Secret for JWT token signing (min 32 chars). Server will not start without it. Für die lokale Entwicklung setzt das `server`-Script (und damit `dev:all`) per `cross-env` ein festes Dev-Secret — es überschreibt ein extern gesetztes `JWT_SECRET`. Produktion ist nicht betroffen: der Container startet über `CMD ["tsx", "server/index.ts"]`, nicht über npm.
 - `DATABASE_PATH` — path to SQLite database file (default: `./data/finance.db`)
 - `DATABASE_URL` — PostgreSQL connection string; when set, SQLite is not used (e.g. `postgres://user:pass@host:5432/db`)
 - `PORT` — server port (default: `3001`)
