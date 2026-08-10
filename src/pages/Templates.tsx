@@ -40,14 +40,20 @@ const INITIAL_FORM = {
 
 export default function Templates() {
   const navigate = useNavigate();
-  const { data: templates, error: templatesError, refetch } = useApi<Template[]>("/templates");
-  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
-  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
-  const { data: suggestions } = useApi<Suggestion[]>("/templates/suggestions");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [editItem, setEditItem] = useState<Template | null>(null);
+  const modalOpen = editItem !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: templates, error: templatesError, refetch } = useApi<Template[]>("/templates", { paused: modalOpen });
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories", { paused: modalOpen });
+  const { data: suggestions } = useApi<Suggestion[]>("/templates/suggestions", { paused: modalOpen });
 
   const [tab, setTab] = useState<"expense" | "income">("expense");
   const [showForm, setShowForm] = useState(false);
-  const [editItem, setEditItem] = useState<Template | null>(null);
   const [bookItem, setBookItem] = useState<Template | null>(null);
   const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
   const [isSubmitting, setIsSubmitting] = useState(false);

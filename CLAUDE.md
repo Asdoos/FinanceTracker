@@ -46,8 +46,8 @@ Multi-user JWT-based authentication. First user is created via `/api/auth/setup`
 - **JWT tokens**: Access token (15 min), Refresh token (30 days). Stored in `localStorage` on the frontend.
 - **API keys**: For MCP server and external integrations. `ft_` prefix, SHA-256 hashed in DB. Managed via `/api/auth/api-keys`.
 - **Frontend auth**: `AuthContext` (`src/context/AuthContext.tsx`) manages state. On app load: checks `/api/auth/status` → redirects to `/setup` or `/login` if needed. The API client (`src/lib/api.ts`) auto-attaches Bearer tokens and handles 401 with token refresh.
-- **Data isolation**: All routes filter by `req.user!.id` — every SQL query includes `WHERE user_id = ?`.
-- **Data migration**: When first admin is created via setup, all existing orphaned data (user_id IS NULL) is assigned to that admin (`server/db/migrate.ts`).
+- **Data isolation**: **Sichtbarkeit ist ausschließlich durch das Konto bestimmt**, nicht mehr durch `user_id`. Jede Query filtert über `account_id IN (<sichtbare Konten>)` aus `visibleAccounts()` — siehe „Sichtbarkeit und Schreibrecht". Der alte Zweig `WHERE user_id = ?` ist **weggefallen** und nicht als `OR` stehen geblieben: additiv wäre er ein Leck, weil er einem ausgetretenen Mitglied weiterhin seine Alt-Buchungen zeigte.
+- **Data migration**: When first admin is created via setup, all existing orphaned data is assigned to that admin (`server/db/migrate.ts`) — direkt gefolgt von `ensureOwnerMembershipsForUser`, weil die adoptierten Konten ohne Mitgliedschaftszeile unsichtbar wären.
 
 ### Data model (`server/db/sqlite.ts`)
 
@@ -55,15 +55,105 @@ Multi-user JWT-based authentication. First user is created via `/api/auth/setup`
 |---|---|
 | `users` | `email` (unique), `password_hash`, `display_name`, `is_admin`, `created_at` |
 | `api_keys` | `user_id` (FK), `key_hash`, `label`, `created_at` |
-| `accounts` | `name`, `color`, `is_default`, `freibetrag`, `actual_balance`, `interest_rate`, `user_id` |
-| `categories` | `name`, `color`, `icon`, `budget_limit`, `user_id` |
-| `expense_items` | `label`, `amount`, `type` (`monthly`\|`annual`), `category_id`, `account_id`, `is_active`, `end_date`, `user_id` |
-| `income_sources` | `label`, `amount`, `type` (`monthly`\|`annual`), `account_id`, `is_active`, `user_id` |
-| `transactions` | `date`, `amount`, `type`, `label`, `category_id`, `account_id`, `user_id` |
-| `transaction_templates` | `label`, `amount`, `type`, `category_id`, `account_id`, `user_id` |
+| `accounts` | `name`, `color`, `is_shared`, `actual_balance`, `actual_balance_by`, `interest_rate`, `user_id` |
+| `account_members` | `account_id`, `user_id`, `role` (`owner`\|`member`), `status` (`pending`\|`active`), `freibetrag`, `freibetrag_year`, `is_default` |
+| `categories` | `name`, `color`, `icon`, `budget_limit`, `budget_set_by`, `account_id`, `user_id` |
+| `expense_items` | `label`, `amount`, `type` (`monthly`\|`annual`), `category_id`, `account_id`, `is_active`, `end_date`, `created_by` |
+| `income_sources` | `label`, `amount`, `type` (`monthly`\|`annual`), `account_id`, `is_active`, `created_by` |
+| `transactions` | `date`, `amount`, `type` (`income`\|`expense`\|`transfer`), `label`, `category_id`, `account_id`, `counter_account_id`, `created_by` |
+| `transaction_templates` | `label`, `amount`, `type`, `category_id`, `account_id`, `created_by` |
 | `goals` | `name`, `target_amount`, `current_amount`, `color`, `due_date`, `account_id`, `user_id` |
+| `schema_migrations` | `version`, `applied_at` |
 
 Annual amounts are divided by 12 wherever monthly totals are computed. The `GET /api/summary` endpoint is the single source of truth for the Dashboard — it returns pre-aggregated totals, per-account breakdown, per-category breakdown, and enriched expense items with `shareOfTotal`.
+
+#### Zwei Dinge, die wie Schlamperei aussehen und Absicht sind
+
+**1. Die Spalte heißt je Tabelle anders.** `expense_items`, `income_sources`,
+`transactions` und `transaction_templates` tragen `created_by`; `accounts`,
+`categories` und `goals` tragen weiter `user_id`. Das ist kein
+Migrationsrückstand:
+
+- Seit v0.26 ist **Sichtbarkeit ausschließlich durch das Konto bestimmt**
+  (`account_members`). Auf den vier kontogebundenen Tabellen trägt die Spalte
+  deshalb nur noch **Urheberschaft** — daher `created_by`.
+- Auf `accounts` bedeutet `user_id` **Besitz**, auf `categories` und `goals` ist
+  sie der **Sichtbarkeitsschlüssel des NULL-Zweigs** im hybriden Prädikat
+  (`account_id IN (<shared>) OR (account_id IS NULL AND user_id = ?)`) —
+  persönliche Kategorien haben kein Konto.
+
+Die Umbenennung ist der eigentliche Leck-Schutz: eine vergessene Stelle mit
+`WHERE user_id = ?` ist danach ein **SQL-Fehler** statt einer Query, die still die
+falschen Zeilen liefert. `server/db/migrate.ts` hält die Zuordnung als
+`USER_COLUMNS`. Zwei ESLint-Regeln bewachen das (siehe unten).
+
+**2. Manche Nutzlast-Felder bedeuten „mein Wert", nicht „der Wert".** Dieselbe
+Zeile sieht für zwei Mitglieder unterschiedlich aus:
+
+| Feld | Bedeutung |
+|---|---|
+| `freibetrag`, `freibetragYear`, `isDefault` an einem Konto | **mein** Wert, aus `account_members` flach ins Konto-Objekt gemischt — nicht der des Kontos |
+| `freibetragByMember` | nur an Gemeinschaftskonten: alle Mitglieder-Freibeträge aufgeschlüsselt |
+| `account` / `counterAccount` einer Buchung | `{ masked: true, by: "<Urheber>" }`, wenn der Anfragende dieses Konto nicht sehen darf. Betrag, Datum und Label bleiben immer vollständig |
+| `canEdit` | vom Server, weil das Frontend es nicht ableiten kann: bei einer maskierten Zeile steht das fremde Ende gar nicht in der Nutzlast |
+
+Die flache Zusammenführung war eine bewusste Wahl: sie lässt jede **Lese**stelle
+in Frontend und MCP unverändert. Der Preis ist genau diese Doppelbedeutung.
+
+### Sichtbarkeit und Schreibrecht
+
+`server/lib/visibility.ts` ist die einzige Quelle. `visibleAccounts(db, userId)`
+liefert `{ all, personal, shared }`; die IDs werden als **interpolierte Integer**
+ins SQL gesetzt, nicht als Platzhalter — `convertPlaceholders` im
+Postgres-Adapter nummeriert `?` positionell, und die Routen bauen ihr SQL
+dynamisch zusammen.
+
+| Tabelle | Prädikat |
+|---|---|
+| `expense_items`, `income_sources`, `transaction_templates` | `account_id IN (<all>)` |
+| `transactions` **lesen** | `account_id IN (<all>) OR counter_account_id IN (<all>)` |
+| `transactions` **schreiben** | `account_id IN (<all>) AND (counter_account_id IS NULL OR counter_account_id IN (<all>))` |
+| `categories`, `goals` | `account_id IN (<shared>) OR (account_id IS NULL AND user_id = ?)` |
+| `accounts` | `id IN (<all>)` |
+
+**Lese- und Schreibprädikat für `transactions` sind absichtlich verschieden:** wer
+schreiben will, muss **beide** Enden sehen („du bewegst nur Salden, die du sehen
+darfst"). Für alle anderen Tabellen ist Schreibrecht deckungsgleich mit
+Sichtbarkeit — jedes Mitglied darf die Zeilen des anderen ändern.
+Owner-Sonderrechte hängen ausschließlich an der Konto-Entität (löschen, einladen,
+entfernen, umwandeln).
+
+### Zwei ESLint-Guards
+
+Beide sind `no-restricted-syntax` in `eslint.config.js`, Ausnahmen stehen als
+`eslint-disable-next-line` **mit Begründung an der Fundstelle** — nicht in einer
+zentralen Liste, die nach drei Monaten Einträge enthält, die niemand mehr
+rechtfertigen kann. Falschpositive sind erwünscht.
+
+1. **`user_id` in SQL** — bringt jede Query auf den Tisch, die noch am alten
+   Sichtbarkeitszweig hängt. Ausgenommen ist `server/db/**`: dort ist `user_id`
+   eine Spaltendefinition, kein Prädikat.
+2. **rohe `'income'`/`'expense'`-Literale** — bringt jede Verzweigung über
+   `transactions.type` auf den Tisch, sobald ein Typ dazukommt. Nutze
+   `signedAmount()` oder `EXCLUDE_TRANSFERS_SQL` aus `server/lib/transactions.ts`.
+
+Die Regeln sind **syntaktisch, nicht semantisch**: ein gesetzter
+Disable-Kommentar über einer falschen Query rutscht durch. Sie ersetzen kein
+Review, sie verhindern das Übersehen.
+
+### Migrationen
+
+`server/db/migrations.ts` hält ein Array nummerierter Schritte mit je einem
+SQLite- und einem Postgres-Zweig. Die Versionsnummern sind **engine-übergreifend**:
+ein Schritt darf auf einer Engine leer sein, die Versionsmarke wird trotzdem
+gesetzt. Jeder Schritt läuft in einer Transaktion **gemeinsam mit seiner
+Versionsmarke**; beim ersten Fehler startet der Server nicht. SQLite legt vorher
+eine Kopie der Datei an.
+
+Die alten `try/catch`-`ALTER`s in den Adaptern sind die **Prä-Versions-Präambel**
+(Bestand = Version 0) und laufen **nur auf Version 0** — sonst legte sie Spalten
+wieder an, die ein späterer Schritt gedroppt hat. Neue Schemaänderungen gehören
+ausschließlich nach `migrations.ts`.
 
 ### API endpoints
 
@@ -91,6 +181,10 @@ All other routes require `Authorization: Bearer <token>` and follow REST convent
 | `/api/templates` | GET, GET /suggestions, POST, PATCH /:id, DELETE /:id | `templates.ts` |
 | `/api/goals` | GET, POST, PATCH /:id, DELETE /:id | `goals.ts` |
 | `/api/summary` | GET | `summary.ts` |
+| `/api/accounts/:id/members` | GET, POST (einladen), DELETE /:userId (entfernen/austreten) | `members.ts` |
+| `/api/invitations` | GET, POST /:accountId/accept, POST /:accountId/decline | `members.ts` |
+| `/api/accounts/:id/convert-preview` | GET (Owner) | `convert.ts` |
+| `/api/accounts/:id/convert-to-shared` | POST (Owner, atomar, **nicht umkehrbar**) | `convert.ts` |
 | `/api/stats` | GET, GET /budget-comparison | `stats.ts` |
 | `/api/export` | GET /expenses, GET /income, GET /transactions | `export.ts` |
 
@@ -113,6 +207,35 @@ All other routes require `Authorization: Bearer <token>` and follow REST convent
 | `/users` | `UserManagement.tsx` | Auth API (admin only) |
 
 All pages manage their own CRUD modals locally with `useState`. No shared modal/dialog component — each page contains its own.
+
+### Gemeinschaftskonten im Frontend
+
+**Prinzip: erst den Raum, dann den Inhalt.** Die *Form* des Raum-Wählers folgt der
+Informationsdichte, nicht der Seite: `RoomTiles` (Kachelleiste mit `rest` als
+Leitkennzahl) auf Dashboard und Statistik, `RoomRail` (schmale Leiste) dort, wo
+der Inhalt keine Kachel füllt — beide in `src/components/RoomSwitcher.tsx`.
+
+Der aktive Raum steht in der **URL** (`?raum=<id>`), **nicht** im `localStorage`:
+verworfen wurde persistierter Zustand, nicht die Weitergabe über die URL. Ein
+unbekannter Wert fällt auf „persönlich" zurück statt zu scheitern.
+
+Der Kalender **bricht das Raum-Prinzip bewusst** und mischt alle Räume — er ist
+Liquiditäts-Vorschau und hat keine raumgebundene Bezugsgröße, die eine Mischung
+verfälschen könnte. Der Übertragungs-Streifen des Dashboards gehört keinem Raum.
+
+### Frische-Mechanik
+
+Das Problem an geteilten Daten ist **Veralterung, nicht Kollision**: „zwei
+Mitglieder bearbeiten gleichzeitig" tritt bei zwei Personen praktisch nie ein,
+„ein Tab steht seit gestern offen" garantiert. Last-write-wins bleibt akzeptiert —
+kein `updated_at`, keine Version, kein 409 im Modal.
+
+`useApi` lädt deshalb bei **Fokus** neu (kein Polling) und nimmt ein
+`{ paused }`-Flag. Die Pause bei offenem Modal ist **Teil der Entscheidung, kein
+Umsetzungsdetail**: sonst wechselt man zum Taschenrechner, kommt zurück, und die
+Daten unter dem halb gefüllten Formular haben sich verschoben — schlimmer als
+veraltet. Deshalb steht der Modal-Zustand auf jeder Seite **über** den
+`useApi`-Aufrufen.
 
 ### MCP Server
 

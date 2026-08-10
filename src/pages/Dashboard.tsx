@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/api";
 import { eur, pct } from "../lib/format";
+import { parseRoom, RoomTiles, type Room } from "../components/RoomSwitcher";
 import {
   PieChart,
   Pie,
@@ -12,6 +13,15 @@ import {
 import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight, ArrowLeftRight } from "lucide-react";
 
 const FREIBETRAG_LIMIT = 1000;
+
+type CategoryBreakdown = {
+  category: { id: number; name: string; color: string; budget?: number | null };
+  monthly: number;
+  transactionMonthly: number;
+  share: number;
+  itemCount: number;
+  pctBudget: number | null;
+};
 
 type Summary = {
   totalMonthlyExpenses: number;
@@ -31,6 +41,7 @@ type Summary = {
       color: string;
       freibetrag?: number | null;
       freibetragYear?: number | null;
+      isShared?: boolean;
     };
     monthlyExpenses: number;
     monthlyIncome: number;
@@ -38,20 +49,17 @@ type Summary = {
     itemCount: number;
     freibetragMonthly: number;
   }[];
-  byCategory: {
-    category: { id: number; name: string; color: string; budget?: number | null };
-    monthly: number;
-    transactionMonthly: number;
-    share: number;
-    itemCount: number;
-    pctBudget: number | null;
-  }[];
+  byCategory: CategoryBreakdown[];
+  /** Ein Eintrag je Gemeinschaftskonto — dieselbe Konto-Ebene plus eigenes byCategory. */
+  sharedAccounts: (Summary["byAccount"][number] & { byCategory: CategoryBreakdown[] })[];
   expenses: {
     id: number;
     label: string;
     monthlyAmount: number;
     shareOfTotal: number;
     end_date?: string | null;
+    accountId: number;
+    account?: { id: number; name: string; isShared?: boolean } | null;
   }[];
 };
 
@@ -67,6 +75,9 @@ type Account = {
 export default function Dashboard() {
   const { data: summary, loading } = useApi<Summary>("/summary");
   const { data: accounts } = useApi<Account[]>("/accounts");
+  // Der aktive Raum steht in der URL, nicht im localStorage — verworfen wurde
+  // persistierter Zustand, nicht die Weitergabe.
+  const [params, setParams] = useSearchParams();
 
   if (loading || !summary) {
     return (
@@ -76,7 +87,29 @@ export default function Dashboard() {
     );
   }
 
-  if (summary.expenses.length === 0) {
+  const shared = summary.sharedAccounts ?? [];
+  const sharedIds = shared.map((s) => s.account.id);
+  // Unbekannter Raum fällt auf „persönlich" zurück statt zu scheitern.
+  const room = parseRoom(params.get("raum"), sharedIds);
+  const selectRoom = (id: number | null) => {
+    const next = new URLSearchParams(params);
+    if (id === null) next.delete("raum");
+    else next.set("raum", String(id));
+    setParams(next, { replace: true });
+  };
+  const activeShared = shared.find((s) => s.account.id === room) ?? null;
+
+  const rooms: Room[] = [
+    { id: null, name: "Persönlich", color: "#3b82f6", rest: summary.rest },
+    ...shared.map((s) => ({
+      id: s.account.id,
+      name: s.account.name,
+      color: s.account.color,
+      rest: s.rest,
+    })),
+  ];
+
+  if (summary.expenses.length === 0 && shared.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-gray-400">Keine Daten vorhanden.</p>
@@ -87,11 +120,19 @@ export default function Dashboard() {
     );
   }
 
-  const totalIncome = summary.totalMonthlyIncome + summary.transactionIncomeThisMonth;
-  const totalExpenses = summary.totalMonthlyExpenses + summary.transactionExpensesThisMonth;
+  // Genau *ein* Raum in voller Breite. Im Gemeinschaftsraum stehen nur die
+  // Plan-Zahlen dieses Kontos — die Buchungs-Kennzahlen des Monats gehören zur
+  // persönlichen Ebene.
+  const totalIncome = activeShared
+    ? activeShared.monthlyIncome
+    : summary.totalMonthlyIncome + summary.transactionIncomeThisMonth;
+  const totalExpenses = activeShared
+    ? activeShared.monthlyExpenses
+    : summary.totalMonthlyExpenses + summary.transactionExpensesThisMonth;
   const totalRest = totalIncome - totalExpenses;
+  const roomCategories = activeShared ? activeShared.byCategory : summary.byCategory;
 
-  const chartData = summary.byCategory
+  const chartData = roomCategories
     .filter((c) => c.monthly > 0)
     .map((c) => ({
       name: c.category.name,
@@ -102,6 +143,8 @@ export default function Dashboard() {
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <h2 className="text-xl font-semibold text-white">Dashboard</h2>
+
+      <RoomTiles rooms={rooms} active={room} onSelect={selectRoom} />
 
       {/* Top KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
@@ -130,9 +173,11 @@ export default function Dashboard() {
           bg="bg-red-500/10"
         />
         <KpiCard
-          label="Rest / Monat"
-          value={eur(totalRest)}
-          sub={totalRest >= 0 ? "Überschuss" : "Defizit"}
+          label={activeShared ? "Monatlich zu decken" : "Rest / Monat"}
+          value={eur(activeShared ? Math.abs(totalRest) : totalRest)}
+          sub={activeShared
+            ? "Bedarf des Gemeinschaftskontos"
+            : totalRest >= 0 ? "Überschuss" : "Defizit"}
           icon={<Wallet size={18} />}
           color={totalRest >= 0 ? "text-blue-400" : "text-orange-400"}
           bg={totalRest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
@@ -218,7 +263,9 @@ export default function Dashboard() {
         const pctUsed = Math.min((summary.totalFreibetrag / FREIBETRAG_LIMIT) * 100, 100);
         const exceeded = summary.totalFreibetrag > FREIBETRAG_LIMIT;
         const currentYear = new Date().getFullYear();
-        const accountsWithFb = summary.byAccount.filter((a) => a.freibetragMonthly > 0);
+        // Bewusst über **alle** Räume: das 1.000-€-Limit gilt pro Person, nicht
+        // pro Raum — deshalb ignoriert dieser Block die Raum-Auswahl.
+        const accountsWithFb = [...summary.byAccount, ...shared].filter((a) => a.freibetragMonthly > 0);
         return (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
             <div className="flex items-center gap-2">
@@ -287,7 +334,10 @@ export default function Dashboard() {
         const in30Days = new Date(today);
         in30Days.setDate(today.getDate() + 30);
 
-        const expiringSoon = (summary.expenses ?? []).filter((e) => {
+        const roomExpenses = (summary.expenses ?? []).filter((e) =>
+          activeShared ? e.accountId === activeShared.account.id : !e.account?.isShared
+        );
+        const expiringSoon = roomExpenses.filter((e) => {
           if (!e.end_date) return false;
           const d = new Date(e.end_date);
           return d >= today && d <= in30Days;
@@ -359,7 +409,8 @@ export default function Dashboard() {
           <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
             Nach Konto
           </h3>
-          {summary.byAccount
+          {/* Genau ein Raum: im Gemeinschaftsraum steht dessen eigenes Konto, sonst die persönlichen. */}
+          {(activeShared ? [activeShared] : summary.byAccount)
             .filter((a) => a.monthlyExpenses > 0 || a.monthlyIncome > 0)
             .map(({ account, monthlyExpenses, monthlyIncome, rest, itemCount, freibetragMonthly }) => {
               const hasFb = freibetragMonthly > 0 && account.freibetrag != null;

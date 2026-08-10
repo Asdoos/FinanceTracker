@@ -3,7 +3,7 @@ import { useApi, api } from "../lib/api";
 import toast from "react-hot-toast";
 import { eur } from "../lib/format";
 import { errorMessage } from "../lib/errors";
-import { Plus, Pencil, Trash2, Check, Search, Download, ArrowLeftRight, Info } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Search, Download, ArrowLeftRight, Info, Lock, Eye } from "lucide-react";
 import { Modal } from "../components/Modal";
 import { Link } from "react-router-dom";
 
@@ -20,18 +20,28 @@ type Transaction = {
   counterAccountId: number | null;
   note?: string;
   category: { id: number; name: string; color: string } | null;
-  account: { id: number; name: string; color: string } | null;
-  counterAccount: { id: number; name: string; color: string } | null;
+  account: EndRef;
+  counterAccount: EndRef;
+  /** Vom Server: false, wenn die Zeile ein Konto berührt, das ich nicht sehe. */
+  canEdit?: boolean;
   /** Vom Server gerechnet — nur im lückenlosen Auszug eines Kontos gesetzt. */
   runningBalance: number | null;
   /** Vorzeichen aus Sicht des gewählten Kontos. */
   signedAmount: number | null;
 };
 
+/** Ein Ende, das der Anfragende nicht sehen darf — vom Server maskiert. */
+type MaskedEnd = { masked: true; by: string };
+type AccountRef = { id: number; name: string; color: string; isShared?: boolean };
+type EndRef = AccountRef | MaskedEnd | null;
+
+const isMasked = (end: EndRef): end is MaskedEnd => !!end && "masked" in end;
+
 type Account = {
   id: number;
   name: string;
   color: string;
+  isShared?: boolean;
   actualBalance?: number | null;
   actualBalanceDate?: string | null;
 };
@@ -86,23 +96,95 @@ const Chip = ({ item }: { item: { name: string; color: string } }) => (
   </span>
 );
 
+/**
+ * Ein Ende der Buchung. Ist es maskiert, steht dort der **Urheber** statt des
+ * Kontonamens — gestrichelt und mit Augen-Symbol, damit erkennbar bleibt, dass
+ * hier etwas verborgen ist und nicht nur ein Name steht.
+ */
+const EndChip = ({ end }: { end: EndRef }) => {
+  if (!end) return null;
+  if (isMasked(end)) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border border-dashed border-gray-600 text-gray-400"
+        title="Dieses Konto siehst du nicht — angezeigt wird, wer die Buchung erfasst hat."
+      >
+        <Eye size={11} /> von {end.by}
+      </span>
+    );
+  }
+  return <Chip item={end} />;
+};
+
+/**
+ * Zeilen-Aktionen. Ist die Zeile nicht schreibbar, steht statt Stift und Papierkorb
+ * ein **Schloss** — eine raumkreuzende Übertragung, deren zweites Ende der
+ * Anfragende nicht sieht, ist für ihn unveränderlich. Sieht nach einem Austritt
+ * niemand mehr beide Enden, ist sie dauerhaft eingefroren; das ist ein gültiger
+ * Endzustand, denn sie *ist* ein historisches Ereignis zwischen zwei Räumen.
+ */
+function RowActions({
+  item,
+  onEdit,
+  onDelete,
+}: {
+  item: Transaction;
+  onEdit: (t: Transaction) => void;
+  onDelete: (id: number) => void;
+}) {
+  if (item.canEdit === false) {
+    return (
+      <span
+        className="p-1.5 text-gray-600 inline-flex"
+        title="Diese Übertragung berührt ein Konto, das du nicht siehst."
+        aria-label="Nicht bearbeitbar"
+      >
+        <Lock size={13} />
+      </span>
+    );
+  }
+  return (
+    <div className="flex gap-1">
+      <button
+        onClick={() => onEdit(item)}
+        aria-label="Bearbeiten"
+        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+      >
+        <Pencil size={13} />
+      </button>
+      <button
+        onClick={() => onDelete(item.id)}
+        aria-label="Löschen"
+        className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
 export default function Transactions() {
-  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
-  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState<Transaction | null>(null);
+  const modalOpen = showAdd || editItem !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories", { paused: modalOpen });
 
   const [accountId, setAccountId] = useState<number | null>(null);
 
   // Der Auszug wird **ohne** Typ-Verengung geladen — nur dann liefert der Server den
   // laufenden Saldo. Die Typ-Achse filtert clientseitig und blendet die Spalte aus.
   const { data: transactions, error: transactionsError, refetch } = useApi<Transaction[]>(
-    accountId ? `/transactions?accountId=${accountId}` : "/transactions"
-  );
+    accountId ? `/transactions?accountId=${accountId}` : "/transactions", { paused: modalOpen });
 
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
-  const [showAdd, setShowAdd] = useState(false);
-  const [editItem, setEditItem] = useState<Transaction | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -391,12 +473,12 @@ export default function Transactions() {
                           {item.category && <Chip item={item.category} />}
                           {item.type === "transfer" ? (
                             <span className="text-xs text-gray-500 flex items-center gap-1">
-                              {item.account && <Chip item={item.account} />}
+                              <EndChip end={item.account} />
                               <ArrowLeftRight size={11} />
-                              {item.counterAccount && <Chip item={item.counterAccount} />}
+                              <EndChip end={item.counterAccount} />
                             </span>
                           ) : (
-                            item.account && <Chip item={item.account} />
+                            <EndChip end={item.account} />
                           )}
                         </div>
                       </div>
@@ -407,22 +489,7 @@ export default function Transactions() {
                         {showBalance && item.runningBalance !== null && (
                           <span className="text-xs text-gray-500">{eur(item.runningBalance)}</span>
                         )}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => openEdit(item)}
-                            aria-label="Bearbeiten"
-                            className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            aria-label="Löschen"
-                            className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
+                        <RowActions item={item} onEdit={openEdit} onDelete={handleDelete} />
                       </div>
                     </div>
                   </div>
@@ -464,12 +531,12 @@ export default function Transactions() {
                         <td className="px-4 py-3">
                           {item.type === "transfer" ? (
                             <span className="inline-flex items-center gap-1.5">
-                              {item.account && <Chip item={item.account} />}
+                              <EndChip end={item.account} />
                               <ArrowLeftRight size={11} className="text-gray-500" />
-                              {item.counterAccount && <Chip item={item.counterAccount} />}
+                              <EndChip end={item.counterAccount} />
                             </span>
                           ) : (
-                            item.account && <Chip item={item.account} />
+                            <EndChip end={item.account} />
                           )}
                         </td>
                         <td className={`px-4 py-3 text-right font-medium ${amountClass(signed(item))}`}>
@@ -482,20 +549,7 @@ export default function Transactions() {
                         )}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 justify-end">
-                            <button
-                              onClick={() => openEdit(item)}
-                              aria-label="Bearbeiten"
-                              className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(item.id)}
-                              aria-label="Löschen"
-                              className="p-1.5 hover:bg-red-900/40 rounded text-gray-400 hover:text-red-400"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            <RowActions item={item} onEdit={openEdit} onDelete={handleDelete} />
                           </div>
                         </td>
                       </tr>

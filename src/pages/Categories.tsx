@@ -21,10 +21,16 @@ const PRESET_COLORS = [
 const INITIAL_FORM = { name: "", color: "#3b82f6", icon: "", budget: "" };
 
 export default function Categories() {
-  const { data: categories, error: categoriesError, refetch } = useApi<Category[]>("/categories");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [editId, setEditId] = useState<number | null>(null);
+  const modalOpen = editId !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: categories, error: categoriesError, refetch } = useApi<Category[]>("/categories", { paused: modalOpen });
 
   const [showModal, setShowModal] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);

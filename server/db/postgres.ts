@@ -195,10 +195,15 @@ export async function createPostgresAdapter(
     client.release();
   }
 
+  // Während einer Transaktion müssen alle Statements über **dieselbe** Verbindung
+  // laufen — ein BEGIN auf dem Pool landete sonst womöglich auf einer anderen.
+  let active: pg.PoolClient | null = null;
+  const conn = () => active ?? pool;
+
   return {
     async query(sql: string, params: any[] = []): Promise<QueryResult> {
       const pgSql = convertPlaceholders(sql);
-      const result = await pool.query(pgSql, params);
+      const result = await conn().query(pgSql, params);
       return { rows: result.rows, changes: result.rowCount ?? 0, lastId: 0 };
     },
 
@@ -210,7 +215,7 @@ export async function createPostgresAdapter(
         pgSql += " RETURNING id";
       }
 
-      const result = await pool.query(pgSql, params);
+      const result = await conn().query(pgSql, params);
       return {
         rows: result.rows,
         changes: result.rowCount ?? 0,
@@ -219,7 +224,25 @@ export async function createPostgresAdapter(
     },
 
     async exec(sql: string): Promise<void> {
-      await pool.query(sql);
+      await conn().query(sql);
+    },
+
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+      if (active) throw new Error("Transaktionen sind nicht verschachtelbar");
+      const client = await pool.connect();
+      active = client;
+      try {
+        await client.query("BEGIN");
+        const result = await fn();
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        active = null;
+        client.release();
+      }
     },
 
     async close(): Promise<void> {

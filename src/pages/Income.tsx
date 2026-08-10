@@ -30,15 +30,21 @@ const INITIAL_FORM = {
 };
 
 export default function Income() {
-  const { data: incomes, error: incomesError, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income");
-  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState<IncomeItem | null>(null);
+  const modalOpen = showAdd || editItem !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: incomes, error: incomesError, refetch: refetchIncomes } = useApi<IncomeItem[]>("/income", { paused: modalOpen });
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts", { paused: modalOpen });
 
   const [search, setSearch] = useState("");
   const [filterAccount, setFilterAccount] = useState("all");
   const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
   const [sortBy, setSortBy] = useState<"amount" | "label" | "type">("amount");
-  const [showAdd, setShowAdd] = useState(false);
-  const [editItem, setEditItem] = useState<IncomeItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
 

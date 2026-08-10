@@ -41,9 +41,17 @@ const INITIAL_FORM = {
 };
 
 export default function Expenses() {
-  const { data: expenses, error: expensesError, refetch: refetchExpenses } = useApi<ExpenseItem[]>("/expenses");
-  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts");
-  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [showAdd, setShowAdd] = useState(false);
+  const [editItem, setEditItem] = useState<ExpenseItem | null>(null);
+  const modalOpen = showAdd || editItem !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: expenses, error: expensesError, refetch: refetchExpenses } = useApi<ExpenseItem[]>("/expenses", { paused: modalOpen });
+  const { data: accounts, error: accountsError } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  const { data: categories, error: categoriesError } = useApi<Category[]>("/categories", { paused: modalOpen });
 
   const [filterAccount, setFilterAccount] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -51,8 +59,6 @@ export default function Expenses() {
   const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
   const [sortBy, setSortBy] = useState<"amount" | "label" | "type">("amount");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [showAdd, setShowAdd] = useState(false);
-  const [editItem, setEditItem] = useState<ExpenseItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
 

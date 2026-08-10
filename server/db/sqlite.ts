@@ -248,6 +248,21 @@ export function createSqliteAdapter(dbPath?: string): DbAdapter {
       db.exec(sql);
     },
 
+    // better-sqlite3 hält genau eine Verbindung — BEGIN/COMMIT drumherum genügt.
+    // Die Callback-Variante von better-sqlite3 scheidet aus: sie ist synchron und
+    // kann kein `await` umschließen.
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+      db.exec("BEGIN");
+      try {
+        const result = await fn();
+        db.exec("COMMIT");
+        return result;
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
+
     async close(): Promise<void> {
       db.close();
     },

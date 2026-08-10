@@ -69,9 +69,22 @@ export const api = {
 
 /**
  * React hook for data fetching.
- * Fetches data from the given URL and refetches when `refetch` is called.
+ *
+ * Holt die Daten und lädt neu, wenn `refetch` gerufen wird — **oder wenn das
+ * Fenster den Fokus zurückbekommt.**
+ *
+ * Das Problem an geteilten Daten ist **Veralterung, nicht Kollision**: „zwei
+ * Mitglieder bearbeiten gleichzeitig" tritt bei zwei Personen praktisch nie ein,
+ * „ein Tab steht seit gestern offen" garantiert. Deshalb Fokus-Refetch statt
+ * Polling.
+ *
+ * `paused` ist **Teil der Entscheidung, kein Umsetzungsdetail**: bei offenem Modal
+ * darf nicht nachgeladen werden. Sonst wechselt man zum Taschenrechner, kommt
+ * zurück, und die Daten unter dem halb gefüllten Formular haben sich verschoben —
+ * schlimmer als veraltet. `useApi` weiß nichts über Modals und braucht das Signal
+ * von außen.
  */
-export function useApi<T>(url: string): {
+export function useApi<T>(url: string, options?: { paused?: boolean }): {
   data: T | undefined;
   loading: boolean;
   error: string | null;
@@ -81,8 +94,23 @@ export function useApi<T>(url: string): {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const paused = options?.paused ?? false;
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);
+
+  useEffect(() => {
+    if (paused) return;
+    const onFocus = () => {
+      if (document.visibilityState === "hidden") return;
+      setTick((t) => t + 1);
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [paused]);
 
   useEffect(() => {
     let cancelled = false;

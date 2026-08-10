@@ -143,18 +143,24 @@ const INITIAL_FORM = {
 };
 
 export default function Accounts() {
-  const { data: accounts, error: accountsError, refetch: refetchAccounts } = useApi<Account[]>("/accounts");
-  const { data: summary, error: summaryError, refetch: refetchSummary } = useApi<Summary>("/summary");
+  // Modal-Zustand steht hier oben, weil die Frische-Mechanik ihn braucht.
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [balanceModal, setBalanceModal] = useState<Account | null>(null);
+  const modalOpen = showAdd || editId !== null || balanceModal !== null;
+  // Pflicht-Pause: bei offenem Modal wird **nicht** nachgeladen. Sonst wechselt
+  // man zum Taschenrechner, kommt zurück, und die Daten unter dem halb gefüllten
+  // Formular haben sich verschoben — schlimmer als veraltet.
+
+  const { data: accounts, error: accountsError, refetch: refetchAccounts } = useApi<Account[]>("/accounts", { paused: modalOpen });
+  const { data: summary, error: summaryError, refetch: refetchSummary } = useApi<Summary>("/summary", { paused: modalOpen });
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const [balanceModal, setBalanceModal] = useState<Account | null>(null);
   const [balanceForm, setBalanceForm] = useState({ balance: "", date: today });
   const [isSubmittingBalance, setIsSubmittingBalance] = useState(false);
 
