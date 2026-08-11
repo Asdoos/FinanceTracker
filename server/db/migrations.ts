@@ -252,6 +252,105 @@ export const MIGRATIONS: MigrationStep[] = [
       "ALTER TABLE transaction_templates RENAME COLUMN user_id TO created_by",
     ],
   },
+
+  {
+    version: 8,
+    name: "Gehalt: salaries und salary_components",
+    // Das Gehalt kommt als **neue, leere Struktur**. Ausdrücklich nicht hier:
+    //   - **kein Backfill.** Eine Label-Heuristik (`/gehalt|lohn/i`) kann den
+    //     entscheidenden Unterschied gar nicht lesen: „Gehalt Anna" + „Gehalt Bernd"
+    //     sind zwei Gehälter, „Gehalt" + „Weihnachtsgeld" ist eines mit zwei Posten.
+    //     Und der Fehler wäre still — eine Migration bricht bei einer Ausnahme hart ab,
+    //     ein falsch geratener Backfill wirft keine. Dieselbe Ablehnung wie beim
+    //     Backfill alter Umbuchungs-Paare in Schritt 2.
+    //   - **kein `sqliteRebuild`.** Es wird nur angelegt, nichts umgebaut; der
+    //     FK-Check-vor-Commit ist für Tabellen-Neubauten da.
+    //   - **kein Schutz des Übergangszustands.** „Alte Einnahmezeile *und* neues
+    //     Gehalt" ist der garantierte Normalfall jedes Bestandsnutzers, aber keine
+    //     Doppelzählung: `income_sources` und `salaries` sind disjunkte Quellen.
+    //
+    // Tabellen und Indizes bleiben in **einem** Schritt — aufteilen brächte nichts,
+    // weil beide zusammen atomar sein müssen. Und sie stehen **nur** hier, nicht
+    // zusätzlich in der `CREATE TABLE IF NOT EXISTS`-Präambel der Adapter: sonst gibt
+    // es zwei Wahrheiten für dieselbe Tabelle, die auseinanderlaufen.
+    //
+    // `CHECK` **nur auf `type`** — kleine, endgültige Wertemenge in die Datenbank,
+    // alles Wachsende oder Gerechnete in die Zod-Schreibgrenze:
+    //   - `type`: zwei Werte, seit Bestehen unverändert, `income_sources` und
+    //     `expense_items` tragen ihn schon.
+    //   - `kind`: der Katalog in `shared/salaryCatalog.ts` soll wachsen, und auf SQLite
+    //     ist ein `CHECK` nur per Tabellen-Rebuild änderbar — jede neue
+    //     Bestandteilsart wäre ein Rebuild-Schritt. Preis, ausdrücklich benannt: ein
+    //     `INSERT` an der API vorbei kann ein unbekanntes `kind` schreiben, und die
+    //     Anzeige muss auf den rohen Schlüssel zurückfallen statt abzustürzen.
+    //   - `amount != 0` und die drei Stundenregeln: Fachlogik über mehrere Felder, kein
+    //     Spaltentyp. Sie gehören an die Schreibgrenze, wo **eine** Stelle HTTP *und*
+    //     MCP deckt.
+    //
+    // Kaskade nach unten, Sperre nach oben: `salary_components` hängt per
+    // `ON DELETE CASCADE` am Gehalt, weil ein verwaister Posten keinen
+    // Sichtbarkeitsschlüssel hätte und damit für *jede* Abfrage unerreichbar wäre —
+    // kein Leck, aber struktureller Müll. Die Kaskade gehört in die **Datenbank**,
+    // nicht in die Route, weil der MCP ein zweiter Löschweg ist. Umgekehrt gibt es
+    // **keine** Kaskade vom Konto: dort antworten `accounts.ts` und `convert.ts` mit
+    // 409, denn ein Gehalt mit fünfzehn Posten ist das teuerste Gebilde der App.
+    //
+    // `account_id` steht **nur am Gehalt**. Der Index auf
+    // `salary_components(salary_id)` ist deshalb der *Sichtbarkeitsindex*: jedes
+    // Prädikat läuft über den Join (`server/lib/salary.ts`).
+    sqlite: [
+      `CREATE TABLE salaries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employer TEXT NOT NULL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        is_active INTEGER NOT NULL DEFAULT 1,
+        note TEXT,
+        created_by INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE salary_components (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        salary_id INTEGER NOT NULL REFERENCES salaries(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        label TEXT,
+        amount REAL NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('monthly', 'annual')),
+        hourly_rate REAL,
+        hours REAL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      "CREATE INDEX idx_salaries_account ON salaries(account_id)",
+      "CREATE INDEX idx_salary_components_salary ON salary_components(salary_id)",
+    ],
+    postgres: [
+      `CREATE TABLE salaries (
+        id SERIAL PRIMARY KEY,
+        employer TEXT NOT NULL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        note TEXT,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+      `CREATE TABLE salary_components (
+        id SERIAL PRIMARY KEY,
+        salary_id INTEGER NOT NULL REFERENCES salaries(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        label TEXT,
+        amount DOUBLE PRECISION NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('monthly', 'annual')),
+        hourly_rate DOUBLE PRECISION,
+        hours DOUBLE PRECISION,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`,
+      "CREATE INDEX idx_salaries_account ON salaries(account_id)",
+      "CREATE INDEX idx_salary_components_salary ON salary_components(salary_id)",
+    ],
+  },
 ];
 
 /** Höchste bekannte Zielversion — für Log- und Backup-Namen. */

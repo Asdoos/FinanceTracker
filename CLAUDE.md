@@ -35,6 +35,11 @@ No test framework is configured.
 
 **Frontend** (`src/`) is a Vite + React + TypeScript SPA. Tailwind CSS for styling. All server state is fetched via REST API using a custom `useApi` hook in `src/lib/api.ts`.
 
+**Shared** (`shared/`) holds constants both sides need and neither owns — derzeit
+`salaryCatalog.ts`, der Bestandteilskatalog des Gehalts (Server prüft `kind` dagegen,
+Frontend baut daraus Palette und Vorbelegungen). Nicht für Server- oder Frontend-Logik:
+`shared/` ist in `tsconfig.app.json` eingetragen, landet also im Browser-Bündel.
+
 **Backend** (`server/`) is an Express.js REST API. Uses a `DbAdapter` interface (`server/db/adapter.ts`) so either SQLite or PostgreSQL can be used — selected at runtime based on whether `DATABASE_URL` is set. Route handlers call `getDb()` from `server/db/index.ts` to get the singleton adapter.
 
 ### Authentication
@@ -63,6 +68,8 @@ Multi-user JWT-based authentication. First user is created via `/api/auth/setup`
 | `transactions` | `date`, `amount`, `type` (`income`\|`expense`\|`transfer`), `label`, `category_id`, `account_id`, `counter_account_id`, `created_by` |
 | `transaction_templates` | `label`, `amount`, `type`, `category_id`, `account_id`, `created_by` |
 | `goals` | `name`, `target_amount`, `current_amount`, `color`, `due_date`, `account_id`, `user_id` |
+| `salaries` | `employer`, `account_id`, `is_active`, `note`, `created_by`, `created_at` — **kein `amount`** |
+| `salary_components` | `salary_id` (FK, `ON DELETE CASCADE`), `kind`, `label`, `amount`, `type` (`monthly`\|`annual`), `hourly_rate`, `hours`, `is_active`, `created_by` |
 | `schema_migrations` | `version`, `applied_at` |
 
 Annual amounts are divided by 12 wherever monthly totals are computed. The `GET /api/summary` endpoint is the single source of truth for the Dashboard — it returns pre-aggregated totals, per-account breakdown, per-category breakdown, and enriched expense items with `shareOfTotal`.
@@ -70,12 +77,12 @@ Annual amounts are divided by 12 wherever monthly totals are computed. The `GET 
 #### Zwei Dinge, die wie Schlamperei aussehen und Absicht sind
 
 **1. Die Spalte heißt je Tabelle anders.** `expense_items`, `income_sources`,
-`transactions` und `transaction_templates` tragen `created_by`; `accounts`,
-`categories` und `goals` tragen weiter `user_id`. Das ist kein
+`transactions`, `transaction_templates`, `salaries` und `salary_components` tragen
+`created_by`; `accounts`, `categories` und `goals` tragen weiter `user_id`. Das ist kein
 Migrationsrückstand:
 
 - Seit v0.26 ist **Sichtbarkeit ausschließlich durch das Konto bestimmt**
-  (`account_members`). Auf den vier kontogebundenen Tabellen trägt die Spalte
+  (`account_members`). Auf den kontogebundenen Tabellen trägt die Spalte
   deshalb nur noch **Urheberschaft** — daher `created_by`.
 - Auf `accounts` bedeutet `user_id` **Besitz**, auf `categories` und `goals` ist
   sie der **Sichtbarkeitsschlüssel des NULL-Zweigs** im hybriden Prädikat
@@ -86,6 +93,12 @@ Die Umbenennung ist der eigentliche Leck-Schutz: eine vergessene Stelle mit
 `WHERE user_id = ?` ist danach ein **SQL-Fehler** statt einer Query, die still die
 falschen Zeilen liefert. `server/db/migrate.ts` hält die Zuordnung als
 `USER_COLUMNS`. Zwei ESLint-Regeln bewachen das (siehe unten).
+
+`USER_COLUMNS` ist **zweierlei**: Register für die Adoption verwaister Daten im Setup
+*und* Löschliste beim Entfernen eines Nutzers. Deshalb steht dort `salaries`, aber
+**nicht** `salary_components` — der Eintrag risse sonst einzelne Posten aus einem
+überlebenden Gehalt (Mitglied B darf Posten an A's Gehalt hängen), und dessen Summe
+änderte sich still. Der Normalfall ist von der Kaskade am Gehalt gedeckt.
 
 **2. Manche Nutzlast-Felder bedeuten „mein Wert", nicht „der Wert".** Dieselbe
 Zeile sieht für zwei Mitglieder unterschiedlich aus:
@@ -115,6 +128,13 @@ dynamisch zusammen.
 | `transactions` **schreiben** | `account_id IN (<all>) AND (counter_account_id IS NULL OR counter_account_id IN (<all>))` |
 | `categories`, `goals` | `account_id IN (<shared>) OR (account_id IS NULL AND user_id = ?)` |
 | `accounts` | `id IN (<all>)` |
+| `salaries` | `account_id IN (<all>)` — `NOT NULL`, kein `NULL`-Zweig |
+| `salary_components` | über den **Join aufs Gehalt**: `s.account_id IN (<all>)`; die Tabelle trägt keine `account_id` |
+
+Für `salary_components` steht das Prädikat **nie handgeschrieben in einer Route**,
+sondern ausschließlich in `server/lib/salary.ts` (`selectVisibleComponents()`) — dort
+liegen Sichtbarkeit und `/12`-Summenlogik im selben Baustein, weil beide Eigenschaften
+„des Gehalts als Ganzem" sind. Ein dritter ESLint-Guard bewacht das.
 
 **Lese- und Schreibprädikat für `transactions` sind absichtlich verschieden:** wer
 schreiben will, muss **beide** Enden sehen („du bewegst nur Salden, die du sehen
@@ -123,9 +143,9 @@ Sichtbarkeit — jedes Mitglied darf die Zeilen des anderen ändern.
 Owner-Sonderrechte hängen ausschließlich an der Konto-Entität (löschen, einladen,
 entfernen, umwandeln).
 
-### Zwei ESLint-Guards
+### Drei ESLint-Guards
 
-Beide sind `no-restricted-syntax` in `eslint.config.js`, Ausnahmen stehen als
+Alle drei sind `no-restricted-syntax` in `eslint.config.js`, Ausnahmen stehen als
 `eslint-disable-next-line` **mit Begründung an der Fundstelle** — nicht in einer
 zentralen Liste, die nach drei Monaten Einträge enthält, die niemand mehr
 rechtfertigen kann. Falschpositive sind erwünscht.
@@ -136,6 +156,11 @@ rechtfertigen kann. Falschpositive sind erwünscht.
 2. **rohe `'income'`/`'expense'`-Literale** — bringt jede Verzweigung über
    `transactions.type` auf den Tisch, sobald ein Typ dazukommt. Nutze
    `signedAmount()` oder `EXCLUDE_TRANSFERS_SQL` aus `server/lib/transactions.ts`.
+3. **rohes `FROM salary_components`** — die Tabelle hat keine `account_id`, ein
+   vergessenes `WHERE` liefert deshalb *alle* Bestandteile *aller* Nutzer. Nutze
+   `selectVisibleComponents()` aus `server/lib/salary.ts`. Die Regel greift auf
+   Lesestellen; ein Schreibzugriff auf eine ID ist durch die Prüfung des Elternteils
+   gedeckt.
 
 Die Regeln sind **syntaktisch, nicht semantisch**: ein gesetzter
 Disable-Kommentar über einer falschen Query rutscht durch. Sie ersetzen kein

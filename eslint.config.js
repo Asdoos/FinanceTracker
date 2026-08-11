@@ -78,8 +78,39 @@ export default tseslint.config(
           message:
             "Roher Typ-Name 'expense'. Über `transactions.type` wird nicht per Hand verzweigt — nutze signedAmount() oder EXCLUDE_TRANSFERS_SQL aus server/lib/transactions.ts. Bewusste Ausnahme: eslint-disable-next-line mit Begründung.",
         },
+        // ── Regel 3: rohe Leseabfragen auf `salary_components` ──────────────
+        // Die Tabelle trägt **keine** `account_id`; ein Bestandteil ist nur über den
+        // Join auf sein Gehalt sichtbar. Ein vergessenes `WHERE` liefert deshalb nicht
+        // zu wenige Zeilen, sondern *alle* Bestandteile *aller* Nutzer.
+        //
+        // Die Kopie einer `account_id` am Bestandteil wäre die Alternative gewesen und
+        // wurde verworfen, weil sie **still** leckt (zweiter Ort für eine Tatsache).
+        // Der Preis dieser Wahl ist ein Join, den zehn Lesestellen vergessen könnten —
+        // dieser Guard ist die Gegenleistung.
+        //
+        // Greift auf `FROM salary_components`, also auf **Lese**stellen: ein
+        // Schreibzugriff auf eine ID ist durch die Prüfung des Elternteils gedeckt.
+        {
+          selector: "Literal[value=/FROM\\s+salary_components/i]",
+          message:
+            "Rohe Abfrage auf `salary_components`. Die Tabelle hat keine account_id — Sichtbarkeit läuft ausschließlich über den Join aufs Gehalt: nutze selectVisibleComponents() aus server/lib/salary.ts. Bewusste Ausnahme: eslint-disable-next-line mit Begründung.",
+        },
+        {
+          selector: "TemplateElement[value.raw=/FROM\\s+salary_components/i]",
+          message:
+            "Rohe Abfrage auf `salary_components`. Die Tabelle hat keine account_id — Sichtbarkeit läuft ausschließlich über den Join aufs Gehalt: nutze selectVisibleComponents() aus server/lib/salary.ts. Bewusste Ausnahme: eslint-disable-next-line mit Begründung.",
+        },
       ],
     },
+  },
+
+  // ── Gemeinsamer Code (Server *und* Browser) ───────────────────────────────
+  // `shared/` trägt Fachkonstanten, die beide Seiten brauchen — kein SQL, keine
+  // Laufzeitumgebung, deshalb keine Globals und keine der drei SQL-Regeln.
+  {
+    files: ["shared/**/*.ts"],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: { ecmaVersion: 2022 },
   },
 
   // ── Schema- und Adapterdateien ────────────────────────────────────────────
