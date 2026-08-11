@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight, ArrowLeftRight } from "lucide-react";
+import { TrendingDown, TrendingUp, Wallet, ShieldCheck, AlertTriangle, Clock, ChevronRight, ArrowLeftRight, ArrowDownToLine } from "lucide-react";
 
 const FREIBETRAG_LIMIT = 1000;
 
@@ -63,13 +63,16 @@ type Summary = {
   }[];
 };
 
+// `/api/accounts` liefert **camelCase** (`toAccount()` in `server/routes/accounts.ts`).
+// Die vorherige snake_case-Deklaration war typseitig unauffällig — die Felder waren
+// schlicht immer `undefined`, weshalb Zinssatz-Hinweis und Zins-Prognose nie erschienen.
 type Account = {
   id: number;
   name: string;
   color: string;
-  interest_rate?: number | null;
-  interest_rate_until?: string | null;
-  actual_balance?: number | null;
+  interestRate?: number | null;
+  interestRateUntil?: string | null;
+  actualBalance?: number | null;
 };
 
 export default function Dashboard() {
@@ -132,6 +135,58 @@ export default function Dashboard() {
   const totalRest = totalIncome - totalExpenses;
   const roomCategories = activeShared ? activeShared.byCategory : summary.byCategory;
 
+  // Die Unterzeilen müssen dem Raum folgen wie der Hauptwert: die Buchungs-Splits
+  // („Fix + Einmalig") gehören zur persönlichen Ebene und standen im
+  // Gemeinschaftsraum unter einer Zahl, zu der sie nicht passen.
+  const incomeSub = activeShared
+    ? `${eur(activeShared.monthlyIncome * 12)} / Jahr`
+    : summary.transactionIncomeThisMonth > 0
+      ? `Fix: ${eur(summary.totalMonthlyIncome)} + Einmalig: ${eur(summary.transactionIncomeThisMonth)}`
+      : `${eur(summary.totalAnnualIncome)} / Jahr`;
+  const expenseSub = activeShared
+    ? `${eur(activeShared.monthlyExpenses * 12)} / Jahr`
+    : summary.transactionExpensesThisMonth > 0
+      ? `Fix: ${eur(summary.totalMonthlyExpenses)} + Einmalig: ${eur(summary.transactionExpensesThisMonth)}`
+      : `${eur(summary.totalAnnualExpenses)} / Jahr`;
+
+  const hasMovements =
+    summary.transactionExpensesThisMonth > 0 ||
+    summary.transactionIncomeThisMonth > 0 ||
+    summary.transactionTransfersOutThisMonth > 0 ||
+    summary.transactionTransfersInThisMonth > 0;
+
+  // Zinssätze hängen an Konten, nicht an Räumen — der Hinweis gehört deshalb in den
+  // Abschnitt „Über alle Räume", nicht neben die raumgefilterten Zahlen.
+  const rateNotice = (() => {
+    if (!accounts) return null;
+    const today = new Date();
+    const in60Days = new Date(today);
+    in60Days.setDate(today.getDate() + 60);
+
+    const withUntil = accounts.filter((a) => a.interestRate && a.interestRateUntil);
+    const expired = withUntil.filter((a) => new Date(a.interestRateUntil!) < today);
+    const expiring = withUntil.filter((a) => {
+      const d = new Date(a.interestRateUntil!);
+      return d >= today && d <= in60Days;
+    });
+    const relevant = [...expired, ...expiring];
+    if (relevant.length === 0) return null;
+
+    return (
+      <NoticeBar
+        to="/accounts"
+        tone="red"
+        text={relevant.length === 1 ? "1 Zinssatz läuft aus" : `${relevant.length} Zinssätze laufen aus`}
+        detail={relevant
+          .map((a) => {
+            const isExpired = new Date(a.interestRateUntil!) < today;
+            return `${a.name} (${isExpired ? "abgelaufen" : new Date(a.interestRateUntil!).toLocaleDateString("de-DE")})`;
+          })
+          .join(" · ")}
+      />
+    );
+  })();
+
   const chartData = roomCategories
     .filter((c) => c.monthly > 0)
     .map((c) => ({
@@ -142,7 +197,21 @@ export default function Dashboard() {
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
-      <h2 className="text-xl font-semibold text-white">Dashboard</h2>
+      {/* Der Raumname steht in der Überschrift, weil die Reiterreihe beim Scrollen
+          aus dem Blick gerät — die Zahlen darunter bedeuten je Raum etwas anderes. */}
+      <div className="flex items-center gap-2">
+        <h2 className="text-xl font-semibold text-white">Dashboard</h2>
+        {activeShared && (
+          <>
+            <span className="text-gray-600">·</span>
+            <span
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ backgroundColor: activeShared.account.color }}
+            />
+            <span className="text-xl font-semibold text-white">{activeShared.account.name}</span>
+          </>
+        )}
+      </div>
 
       <RoomTiles rooms={rooms} active={room} onSelect={selectRoom} />
 
@@ -151,11 +220,7 @@ export default function Dashboard() {
         <KpiCard
           label="Monatliche Einnahmen"
           value={eur(totalIncome)}
-          sub={
-            summary.transactionIncomeThisMonth > 0
-              ? `Fix: ${eur(summary.totalMonthlyIncome)} + Einmalig: ${eur(summary.transactionIncomeThisMonth)}`
-              : `${eur(summary.totalAnnualIncome)} / Jahr`
-          }
+          sub={incomeSub}
           icon={<TrendingUp size={18} />}
           color="text-green-400"
           bg="bg-green-500/10"
@@ -163,172 +228,52 @@ export default function Dashboard() {
         <KpiCard
           label="Monatliche Ausgaben"
           value={eur(totalExpenses)}
-          sub={
-            summary.transactionExpensesThisMonth > 0
-              ? `Fix: ${eur(summary.totalMonthlyExpenses)} + Einmalig: ${eur(summary.transactionExpensesThisMonth)}`
-              : `${eur(summary.totalAnnualExpenses)} / Jahr`
-          }
+          sub={expenseSub}
           icon={<TrendingDown size={18} />}
           color="text-red-400"
           bg="bg-red-500/10"
         />
-        <KpiCard
-          label={activeShared ? "Monatlich zu decken" : "Rest / Monat"}
-          value={eur(activeShared ? Math.abs(totalRest) : totalRest)}
-          sub={activeShared
-            ? "Bedarf des Gemeinschaftskontos"
-            : totalRest >= 0 ? "Überschuss" : "Defizit"}
-          icon={<Wallet size={18} />}
-          color={totalRest >= 0 ? "text-blue-400" : "text-orange-400"}
-          bg={totalRest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
-        />
+        {/* Die dritte Karte trägt je Raum eine **andere Größe**: persönlich den Rest
+            (Vorzeichen inklusive), im Gemeinschaftsraum den monatlichen Bedarf — also
+            den gespiegelten Wert. Sie sieht deshalb bewusst anders aus als eine
+            gewöhnliche KPI-Karte: gleiche Gestalt bei gespiegeltem Vorzeichen ist die
+            Stelle, an der man die falsche Zahl liest. */}
+        {activeShared ? (
+          totalRest < 0 ? (
+            <KpiCard
+              label="Monatlich zu decken"
+              value={eur(Math.abs(totalRest))}
+              sub="Bedarf des Gemeinschaftskontos"
+              icon={<ArrowDownToLine size={18} />}
+              color="text-amber-400"
+              bg="bg-amber-500/10"
+              accent="border-amber-500/40"
+            />
+          ) : (
+            <KpiCard
+              label="Monatlich gedeckt"
+              value={eur(totalRest)}
+              sub="Einnahmen übersteigen die Ausgaben des Kontos"
+              icon={<ArrowDownToLine size={18} />}
+              color="text-emerald-400"
+              bg="bg-emerald-500/10"
+              accent="border-emerald-500/40"
+            />
+          )
+        ) : (
+          <KpiCard
+            label="Rest / Monat"
+            value={eur(totalRest)}
+            sub={totalRest >= 0 ? "Überschuss" : "Defizit"}
+            icon={<Wallet size={18} />}
+            color={totalRest >= 0 ? "text-blue-400" : "text-orange-400"}
+            bg={totalRest >= 0 ? "bg-blue-500/10" : "bg-orange-500/10"}
+          />
+        )}
       </div>
 
-      {/* One-time transactions this month */}
-      {(summary.transactionExpensesThisMonth > 0 || summary.transactionIncomeThisMonth > 0) && (() => {
-        const currentMonth = new Date().toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-        return (
-          <Link
-            to="/transactions"
-            className="block bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Clock size={15} className="text-blue-400" />
-              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
-                Einmalige Transaktionen ({currentMonth})
-              </h3>
-            </div>
-            <div className="flex gap-6">
-              {summary.transactionExpensesThisMonth > 0 && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Ausgaben</p>
-                  <p className="text-base font-semibold text-red-400">
-                    -{eur(summary.transactionExpensesThisMonth)}
-                  </p>
-                </div>
-              )}
-              {summary.transactionIncomeThisMonth > 0 && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Einnahmen</p>
-                  <p className="text-base font-semibold text-green-400">
-                    +{eur(summary.transactionIncomeThisMonth)}
-                  </p>
-                </div>
-              )}
-            </div>
-          </Link>
-        );
-      })()}
-
-      {/* Übertragungen dieses Monats — getrennt statt netto: 1.000 € raus und
-          1.000 € rein ist etwas anderes als keine Bewegung. Sie stehen bewusst
-          neben den Summen, nicht darin: `rest` speist sich aus der Planungsebene
-          und kann von einer Buchung nicht berührt werden. */}
-      {(summary.transactionTransfersOutThisMonth > 0 || summary.transactionTransfersInThisMonth > 0) && (() => {
-        const currentMonth = new Date().toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-        return (
-          <Link
-            to="/transactions"
-            className="block bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <ArrowLeftRight size={15} className="text-blue-400" />
-              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
-                Übertragungen ({currentMonth})
-              </h3>
-            </div>
-            <div className="flex gap-6">
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Abgeflossen</p>
-                <p className="text-base font-semibold text-gray-200">
-                  {eur(summary.transactionTransfersOutThisMonth)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Zugeflossen</p>
-                <p className="text-base font-semibold text-gray-200">
-                  {eur(summary.transactionTransfersInThisMonth)}
-                </p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Umbuchungen zwischen Konten — nicht in Ausgaben, Einnahmen oder Rest enthalten.
-            </p>
-          </Link>
-        );
-      })()}
-
-      {/* Freibetrag overview — only when at least one account has one */}
-      {summary.totalFreibetrag > 0 && (() => {
-        const pctUsed = Math.min((summary.totalFreibetrag / FREIBETRAG_LIMIT) * 100, 100);
-        const exceeded = summary.totalFreibetrag > FREIBETRAG_LIMIT;
-        const currentYear = new Date().getFullYear();
-        // Bewusst über **alle** Räume: das 1.000-€-Limit gilt pro Person, nicht
-        // pro Raum — deshalb ignoriert dieser Block die Raum-Auswahl.
-        const accountsWithFb = [...summary.byAccount, ...shared].filter((a) => a.freibetragMonthly > 0);
-        return (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              {exceeded
-                ? <AlertTriangle size={15} className="text-yellow-400" />
-                : <ShieldCheck size={15} className="text-emerald-400" />}
-              <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
-                Freistellungsauftrag
-              </h3>
-              <span className={`ml-auto text-sm font-semibold ${exceeded ? "text-yellow-400" : "text-white"}`}>
-                {eur(summary.totalFreibetrag)} / {eur(FREIBETRAG_LIMIT)}
-              </span>
-            </div>
-
-            {/* Progress bar */}
-            <div className="w-full bg-gray-800 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all ${exceeded ? "bg-yellow-400" : "bg-emerald-500"}`}
-                style={{ width: `${pctUsed}%` }}
-              />
-            </div>
-
-            {/* Per-account breakdown */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-              {accountsWithFb.map(({ account, freibetragMonthly }) => {
-                const fbYear = account.freibetragYear;
-                const expired = fbYear != null && fbYear < currentYear;
-                return (
-                  <div key={account.id} className="flex items-center gap-2 text-sm">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
-                    <span className="text-gray-300 truncate">{account.name}</span>
-                    <span className="ml-auto text-gray-400 whitespace-nowrap">
-                      {eur(freibetragMonthly * 12)}/Jahr
-                    </span>
-                    <span className={`text-xs ${expired ? "text-red-400" : "text-gray-600"}`}>
-                      {fbYear != null ? (expired ? `abgel. ${fbYear}` : `bis ${fbYear}`) : "∞"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Prognostizierte Jahreszinsen */}
-            {(() => {
-              const withRate = (accounts ?? []).filter(a => a.interest_rate && a.actual_balance);
-              if (withRate.length === 0) return null;
-              const projected = withRate.reduce(
-                (sum, a) => sum + (a.actual_balance! * a.interest_rate!) / 100, 0
-              );
-              const pctP = Math.min((projected / FREIBETRAG_LIMIT) * 100, 100);
-              const col = projected > FREIBETRAG_LIMIT ? "text-red-400" : projected >= 800 ? "text-yellow-400" : "text-emerald-400";
-              return (
-                <div className="pt-2 border-t border-gray-800 flex justify-between text-xs text-gray-500">
-                  <span>Prognostizierte Jahreszinsen</span>
-                  <span className={col}>{eur(projected)} ({pctP.toFixed(0)} %)</span>
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })()}
-
-      {/* Alert: ablaufende Ausgaben-Enddaten */}
+      {/* Raumgebundener Hinweis — die ablaufenden Positionen sind auf den Raum
+          gefiltert und stehen deshalb hier, nicht im Abschnitt „Über alle Räume". */}
       {(() => {
         const today = new Date();
         const in30Days = new Date(today);
@@ -346,68 +291,31 @@ export default function Dashboard() {
         if (expiringSoon.length === 0) return null;
 
         return (
-          <Link to="/expenses" className="block bg-gray-900 border border-yellow-600/40 rounded-xl p-4 hover:border-yellow-500/60 transition-colors">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={15} className="text-yellow-400" />
-              <span className="text-sm text-gray-400">
-                {expiringSoon.length === 1
-                  ? `1 Position läuft in den nächsten 30 Tagen aus`
-                  : `${expiringSoon.length} Positionen laufen in den nächsten 30 Tagen aus`}
-              </span>
-              <ChevronRight size={14} className="ml-auto text-gray-600" />
-            </div>
-          </Link>
+          <NoticeBar
+            to="/expenses"
+            tone="yellow"
+            text={
+              expiringSoon.length === 1
+                ? "1 Position läuft in den nächsten 30 Tagen aus"
+                : `${expiringSoon.length} Positionen laufen in den nächsten 30 Tagen aus`
+            }
+            detail={expiringSoon
+              .map((e) => e.label)
+              .slice(0, 3)
+              .join(" · ") + (expiringSoon.length > 3 ? " …" : "")}
+          />
         );
       })()}
 
-      {/* Alert: ablaufende Zinssätze */}
-      {(() => {
-        if (!accounts) return null;
-        const today = new Date();
-        const in60Days = new Date(today);
-        in60Days.setDate(today.getDate() + 60);
-
-        const expiringRates = accounts.filter((a) => {
-          if (!a.interest_rate || !a.interest_rate_until) return false;
-          const d = new Date(a.interest_rate_until);
-          return d >= today && d <= in60Days;
-        });
-        const expiredRates = accounts.filter((a) => {
-          if (!a.interest_rate || !a.interest_rate_until) return false;
-          return new Date(a.interest_rate_until) < today;
-        });
-        const relevant = [...expiredRates, ...expiringRates];
-        if (relevant.length === 0) return null;
-
-        return (
-          <Link to="/accounts" className="block bg-gray-900 border border-red-600/40 rounded-xl p-4 space-y-1 hover:border-red-500/60 transition-colors">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={15} className="text-red-400" />
-              <span className="text-sm font-medium text-gray-300">Zinssatz läuft aus</span>
-              <ChevronRight size={14} className="ml-auto text-gray-600" />
-            </div>
-            {relevant.map((a) => {
-              const expired = new Date(a.interest_rate_until!) < today;
-              return (
-                <div key={a.id} className="flex items-center gap-2 text-sm pl-5">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: a.color }} />
-                  <span className="text-gray-400">{a.name}</span>
-                  <span className={`ml-auto text-xs ${expired ? "text-red-400" : "text-yellow-400"}`}>
-                    {expired ? "abgelaufen" : new Date(a.interest_rate_until!).toLocaleDateString("de-DE")}
-                  </span>
-                </div>
-              );
-            })}
-          </Link>
-        );
-      })()}
-
-      {/* Per-account cards + Donut chart */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+      {/* Per-account cards + Donut chart
+          Im Gemeinschaftsraum steht in der linken Spalte genau **eine** Konto-Karte —
+          zwei halbe Spalten wären dort eine leere und eine gefüllte. Der Raum bekommt
+          deshalb eine Spalte: Konto-Karte breit, Donut breit mit Legende rechts. */}
+      <div className={`grid grid-cols-1 gap-4 md:gap-6 ${activeShared ? "" : "md:grid-cols-2"}`}>
         {/* Account breakdown */}
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
-            Nach Konto
+            {activeShared ? "Konto" : "Nach Konto"}
           </h3>
           {/* Genau ein Raum: im Gemeinschaftsraum steht dessen eigenes Konto, sonst die persönlichen. */}
           {(activeShared ? [activeShared] : summary.byAccount)
@@ -436,7 +344,9 @@ export default function Dashboard() {
                       {itemCount} Posten
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
+                  {/* In voller Breite (Gemeinschaftsraum) würden drei Zahlen über
+                      1.100 px auseinanderlaufen — die Gruppe bleibt beisammen. */}
+                  <div className={`grid grid-cols-3 gap-2 text-sm ${activeShared ? "max-w-2xl" : ""}`}>
                     <div>
                       <p className="text-gray-500 text-xs">Einnahmen</p>
                       <p className="text-green-400 font-medium">
@@ -490,6 +400,9 @@ export default function Dashboard() {
           <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">
             Ausgaben nach Kategorie
           </h3>
+          {/* Ring und Legende bleiben eine Einheit: über die volle Kartenbreite
+              stünde zwischen beiden ein leeres Feld. */}
+          <div className={activeShared ? "max-w-2xl mx-auto" : ""}>
           <ResponsiveContainer width="100%" height={240}>
             <PieChart>
               <Pie
@@ -514,13 +427,19 @@ export default function Dashboard() {
                   color: "#f9fafb",
                 }}
               />
+              {/* In voller Breite steht die Legende rechts neben dem Ring — unten
+                  liefe sie sonst als eine sehr lange Zeile durch. */}
               <Legend
+                {...(activeShared
+                  ? { layout: "vertical" as const, align: "right" as const, verticalAlign: "middle" as const }
+                  : {})}
                 formatter={(value) => (
                   <span className="text-gray-300 text-xs">{value}</span>
                 )}
               />
             </PieChart>
           </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
@@ -538,7 +457,10 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {[...summary.byCategory]
+            {/* `roomCategories`, nicht `summary.byCategory` — sonst zeigt die Tabelle
+                im Gemeinschaftsraum die persönlichen Kategorien, während der Donut
+                direkt darüber die des Raums zeigt. */}
+            {[...roomCategories]
               .filter((c) => c.monthly > 0 || c.transactionMonthly > 0)
               .sort((a, b) => (b.monthly + b.transactionMonthly) - (a.monthly + a.transactionMonthly))
               .map(({ category, monthly, transactionMonthly, share, pctBudget }) => {
@@ -607,7 +529,254 @@ export default function Dashboard() {
         </table>
         </div>
       </div>
+
+      {/* ── Über alle Räume ──────────────────────────────────────────────
+          Freibetrag und Bewegungen gehören keinem Raum: das 1.000-€-Limit gilt pro
+          Person, und die Buchungssummen laufen über alle sichtbaren Konten. Bisher
+          standen sie ohne Kennzeichnung mitten im raumgefilterten Inhalt — die Frage
+          „warum ändert sich das nicht, wenn ich umschalte?" wird hier vorab
+          beantwortet, statt sie dem Leser zu überlassen. */}
+      {(hasMovements || summary.totalFreibetrag > 0 || rateNotice) && (
+        <section className="pt-2 space-y-3 md:space-y-4">
+          <div className="flex items-center gap-3">
+            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+              Über alle Räume
+            </h3>
+            <span className="flex-1 border-t border-dashed border-gray-800" />
+          </div>
+
+          {hasMovements && <MovementsCard summary={summary} />}
+
+          {summary.totalFreibetrag > 0 && (
+            <FreibetragCard summary={summary} shared={shared} accounts={accounts} />
+          )}
+
+          {rateNotice}
+        </section>
+      )}
     </div>
+  );
+}
+
+/**
+ * Bewegungen des laufenden Monats — Buchungen und Übertragungen in **einer** Karte.
+ *
+ * Vorher zwei gleich schwere Vollbreiten-Karten, die dasselbe Gewicht hatten wie die
+ * Leitkennzahlen. Übertragungen bleiben **getrennt statt netto**: 1.000 € raus und
+ * 1.000 € rein ist etwas anderes als keine Bewegung. Sie stehen neben den Summen,
+ * nicht darin — `rest` speist sich aus der Planungsebene und kann von einer Buchung
+ * nicht berührt werden.
+ */
+function MovementsCard({ summary }: { summary: Summary }) {
+  const currentMonth = new Date().toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  const hasTransfers =
+    summary.transactionTransfersOutThisMonth > 0 || summary.transactionTransfersInThisMonth > 0;
+
+  return (
+    <Link
+      to="/transactions"
+      className="block bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <Clock size={15} className="text-blue-400" />
+        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          Bewegungen ({currentMonth})
+        </h3>
+        <ChevronRight size={14} className="ml-auto text-gray-600" />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+        <Figure
+          label="Einmalige Ausgaben"
+          value={`-${eur(summary.transactionExpensesThisMonth)}`}
+          tone="text-red-400"
+          muted={summary.transactionExpensesThisMonth === 0}
+        />
+        <Figure
+          label="Einmalige Einnahmen"
+          value={`+${eur(summary.transactionIncomeThisMonth)}`}
+          tone="text-green-400"
+          muted={summary.transactionIncomeThisMonth === 0}
+        />
+        <Figure
+          label="Abgeflossen"
+          value={eur(summary.transactionTransfersOutThisMonth)}
+          tone="text-gray-200"
+          muted={summary.transactionTransfersOutThisMonth === 0}
+          icon={<ArrowLeftRight size={11} />}
+        />
+        <Figure
+          label="Zugeflossen"
+          value={eur(summary.transactionTransfersInThisMonth)}
+          tone="text-gray-200"
+          muted={summary.transactionTransfersInThisMonth === 0}
+          icon={<ArrowLeftRight size={11} />}
+        />
+      </div>
+
+      {hasTransfers && (
+        <p className="text-xs text-gray-500 mt-3">
+          Übertragungen sind Umbuchungen zwischen Konten — nicht in Ausgaben, Einnahmen oder Rest
+          enthalten.
+        </p>
+      )}
+    </Link>
+  );
+}
+
+function Figure({
+  label,
+  value,
+  tone,
+  muted,
+  icon,
+}: {
+  label: string;
+  value: string;
+  tone: string;
+  muted?: boolean;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-1">
+        {icon}
+        {label}
+      </p>
+      <p className={`text-base font-semibold tabular-nums ${muted ? "text-gray-600" : tone}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/** Freistellungsauftrag — bewusst über **alle** Räume: das Limit gilt pro Person. */
+function FreibetragCard({
+  summary,
+  shared,
+  accounts,
+}: {
+  summary: Summary;
+  shared: Summary["sharedAccounts"];
+  accounts: Account[] | null | undefined;
+}) {
+  const pctUsed = Math.min((summary.totalFreibetrag / FREIBETRAG_LIMIT) * 100, 100);
+  const exceeded = summary.totalFreibetrag > FREIBETRAG_LIMIT;
+  const currentYear = new Date().getFullYear();
+  const accountsWithFb = [...summary.byAccount, ...shared].filter((a) => a.freibetragMonthly > 0);
+
+  const withRate = (accounts ?? []).filter((a) => a.interestRate && a.actualBalance);
+  const projected = withRate.reduce(
+    (sum, a) => sum + (a.actualBalance! * a.interestRate!) / 100,
+    0
+  );
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        {exceeded ? (
+          <AlertTriangle size={15} className="text-yellow-400" />
+        ) : (
+          <ShieldCheck size={15} className="text-emerald-400" />
+        )}
+        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+          Freistellungsauftrag
+        </h3>
+        <span
+          className={`ml-auto text-sm font-semibold tabular-nums ${
+            exceeded ? "text-yellow-400" : "text-white"
+          }`}
+        >
+          {eur(summary.totalFreibetrag)} / {eur(FREIBETRAG_LIMIT)}
+        </span>
+      </div>
+
+      <div className="w-full bg-gray-800 rounded-full h-2">
+        <div
+          className={`h-2 rounded-full transition-all ${exceeded ? "bg-yellow-400" : "bg-emerald-500"}`}
+          style={{ width: `${pctUsed}%` }}
+        />
+      </div>
+
+      {/* Eigener Hintergrund je Zeile: nebeneinander ohne Absetzung las sich
+          „600,00 €/Jahr bis 2026 ● Haushalt" wie eine einzige Zeile. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+        {accountsWithFb.map(({ account, freibetragMonthly }) => {
+          const fbYear = account.freibetragYear;
+          const expired = fbYear != null && fbYear < currentYear;
+          return (
+            <div
+              key={account.id}
+              className="flex items-center gap-2 text-sm bg-gray-800/30 rounded-lg px-2.5 py-1.5"
+            >
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ backgroundColor: account.color }}
+              />
+              <span className="text-gray-300 truncate">{account.name}</span>
+              <span className="ml-auto text-gray-400 whitespace-nowrap tabular-nums">
+                {eur(freibetragMonthly * 12)}/Jahr
+              </span>
+              <span className={`text-xs ${expired ? "text-red-400" : "text-gray-600"}`}>
+                {fbYear != null ? (expired ? `abgel. ${fbYear}` : `bis ${fbYear}`) : "∞"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {withRate.length > 0 && (
+        <div className="pt-2 border-t border-gray-800 flex justify-between text-xs text-gray-500">
+          <span>Prognostizierte Jahreszinsen</span>
+          <span
+            className={
+              projected > FREIBETRAG_LIMIT
+                ? "text-red-400"
+                : projected >= 800
+                  ? "text-yellow-400"
+                  : "text-emerald-400"
+            }
+          >
+            {eur(projected)} ({Math.min((projected / FREIBETRAG_LIMIT) * 100, 100).toFixed(0)} %)
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Einzeilige Hinweisleiste.
+ *
+ * Warnungen hatten vorher dasselbe Gewicht wie Kennzahlen-Karten — bei zwei
+ * gleichzeitig war das Dashboard eine Wand aus gleich aussehenden Kästen. Ein
+ * Hinweis ist eine Zeile mit Ziel, kein Panel.
+ */
+function NoticeBar({
+  to,
+  tone,
+  text,
+  detail,
+}: {
+  to: string;
+  tone: "yellow" | "red";
+  text: string;
+  detail?: string;
+}) {
+  const ring = tone === "red" ? "border-red-600/40 hover:border-red-500/60" : "border-yellow-600/40 hover:border-yellow-500/60";
+  const icon = tone === "red" ? "text-red-400" : "text-yellow-400";
+  return (
+    <Link
+      to={to}
+      className={`flex items-center gap-2.5 bg-gray-900 border ${ring} rounded-lg px-3.5 py-2.5 transition-colors`}
+    >
+      <AlertTriangle size={14} className={`${icon} shrink-0`} />
+      <span className="text-sm text-gray-300 shrink-0">{text}</span>
+      {/* Auf schmalen Schirmen entfällt das Detail ganz — abgeschnitten mitten im
+          Wort trägt es nichts bei. */}
+      {detail && <span className="hidden sm:inline text-xs text-gray-500 truncate">{detail}</span>}
+      <ChevronRight size={14} className="ml-auto text-gray-600 shrink-0" />
+    </Link>
   );
 }
 
@@ -618,6 +787,7 @@ function KpiCard({
   icon,
   color,
   bg,
+  accent,
 }: {
   label: string;
   value: string;
@@ -625,13 +795,19 @@ function KpiCard({
   icon: React.ReactNode;
   color: string;
   bg: string;
+  /** Rahmenfarbe — markiert eine Karte, die eine andere Größe trägt als ihre Nachbarn. */
+  accent?: string;
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex gap-4 items-start">
+    <div
+      className={`bg-gray-900 border rounded-xl p-4 flex gap-4 items-start ${
+        accent ?? "border-gray-800"
+      }`}
+    >
       <div className={`${bg} ${color} p-2 rounded-lg mt-0.5`}>{icon}</div>
       <div>
         <p className="text-xs text-gray-500 mb-1">{label}</p>
-        <p className="text-xl font-bold text-white">{value}</p>
+        <p className="text-xl font-bold text-white tabular-nums">{value}</p>
         <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
       </div>
     </div>

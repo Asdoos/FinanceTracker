@@ -221,7 +221,27 @@ unbekannter Wert fällt auf „persönlich" zurück statt zu scheitern.
 
 Der Kalender **bricht das Raum-Prinzip bewusst** und mischt alle Räume — er ist
 Liquiditäts-Vorschau und hat keine raumgebundene Bezugsgröße, die eine Mischung
-verfälschen könnte. Der Übertragungs-Streifen des Dashboards gehört keinem Raum.
+verfälschen könnte.
+
+Was keinem Raum gehört, steht im Dashboard **unter** dem Raum-Inhalt in einem
+eigenen Abschnitt „Über alle Räume" (gestrichelte Trennlinie): Freistellungsauftrag
+(das 1.000-€-Limit gilt pro Person), die Bewegungen des Monats (die Buchungssummen
+laufen über alle sichtbaren Konten) und der Zinssatz-Hinweis (Zinssätze hängen an
+Konten). Die Kennzeichnung ist der Zweck des Abschnitts — vorher standen diese
+Blöcke unmarkiert im raumgefilterten Inhalt und änderten sich beim Umschalten nicht.
+
+Die dritte KPI-Karte des Dashboards trägt je Raum eine **andere Größe**: persönlich
+den Rest mit Vorzeichen, im Gemeinschaftsraum den monatlichen Bedarf — also den
+gespiegelten Wert. Sie ist deshalb anders gestaltet (eigenes Icon, farbiger Rahmen);
+gleiche Gestalt bei gespiegeltem Vorzeichen ist die Stelle, an der man die falsche
+Zahl liest. Im Gemeinschaftsraum steht außerdem nur **eine** Konto-Karte, deshalb
+fällt das zweispaltige Grid dort auf eine Spalte und der Donut trägt die Legende
+rechts.
+
+`RoomTiles` ist eine **Reiterreihe**, keine Kartenreihe: mit derselben Sprache wie
+die Karten darunter war der Wähler nicht von Inhalt zu unterscheiden. Die aktive
+Kante trägt die Kontofarbe, und der Raumname steht zusätzlich in der Überschrift,
+weil die Leiste beim Scrollen aus dem Blick gerät.
 
 ### Frische-Mechanik
 

@@ -30,7 +30,15 @@ export function parseRoom(param: string | null, sharedIds: number[]): number | n
 
 export const roomKey = (id: number | null) => (id === null ? "personal" : String(id));
 
-/** Kachelleiste — für Dashboard und Statistik. */
+/**
+ * Kachelleiste — für Dashboard und Statistik.
+ *
+ * Bewusst als **Reiterreihe** gestaltet, nicht als Kartenreihe: mit derselben
+ * Sprache wie die Karten darunter (`bg-gray-900 border-gray-800 rounded-xl`) war
+ * der Wähler von Inhalt nicht unterscheidbar, und der aktive Raum unterschied sich
+ * nur um zwei Graustufen. Die aktive Kante trägt die **Kontofarbe** — dieselbe
+ * Farbe, die im Inhalt darunter den Raum markiert.
+ */
 export function RoomTiles({
   rooms,
   active,
@@ -44,28 +52,36 @@ export function RoomTiles({
   if (rooms.length <= 1) return null;
 
   return (
-    <div className="flex gap-2 flex-wrap">
+    <div className="flex gap-1 flex-wrap border-b border-gray-800" role="tablist">
       {rooms.map((room) => {
         const isActive = room.id === active;
         const needs = room.rest !== undefined && room.rest < 0;
         return (
           <button
             key={roomKey(room.id)}
+            role="tab"
+            aria-selected={isActive}
             onClick={() => onSelect(room.id)}
-            className={`text-left px-4 py-3 rounded-xl border transition-colors min-w-[9rem] ${
-              isActive
-                ? "bg-gray-800 border-gray-600"
-                : "bg-gray-900 border-gray-800 hover:border-gray-700"
+            className={`text-left px-4 pt-2 pb-2.5 -mb-px border-b-2 transition-colors min-w-[8rem] ${
+              isActive ? "" : "border-transparent hover:bg-gray-800/40"
             }`}
+            style={isActive ? { borderBottomColor: room.color } : undefined}
           >
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: room.color }} />
-              <span className={`text-sm font-medium ${isActive ? "text-white" : "text-gray-300"}`}>
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 transition-opacity ${isActive ? "" : "opacity-40"}`}
+                style={{ backgroundColor: room.color }}
+              />
+              <span className={`text-sm font-medium ${isActive ? "text-white" : "text-gray-400"}`}>
                 {room.name}
               </span>
             </div>
             {room.rest !== undefined && (
-              <p className={`text-sm mt-1 font-semibold ${needs ? "text-amber-400" : "text-green-400"}`}>
+              <p
+                className={`text-sm mt-0.5 font-semibold tabular-nums ${
+                  isActive ? (needs ? "text-amber-400" : "text-green-400") : "text-gray-500"
+                }`}
+              >
                 {/* Ein negativer `rest` ist im Gemeinschaftsraum der Normalfall —
                     monatlich zu deckender Bedarf, kein Verlust. */}
                 {needs ? `Bedarf ${eur(Math.abs(room.rest))}` : eur(room.rest)}
