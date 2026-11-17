@@ -3,6 +3,25 @@ import { getDb } from "../db";
 import { accountIn, transactionReadPredicate, visibleAccounts } from "../lib/visibility";
 import { EXCLUDE_TRANSFERS_SQL } from "../lib/transactions";
 import { idList } from "../lib/visibility";
+import { monthlyComponentAmount, selectVisibleComponents } from "../lib/salary";
+
+/**
+ * Monatssumme der Gehaltsposten eines Raums.
+ *
+ * Auch das ist ein „plausible falsche Zahl"-Fall: die Plan/Ist-Kurve ohne Gehalt sieht
+ * nicht kaputt aus, sie sieht nach einem schlechten Monat aus. `activeOnly` deckt
+ * beide `is_active`-Ebenen ab — das Gehalt trägt nach Ticket 02 keinen eigenen Betrag,
+ * summiert werden immer die Posten.
+ */
+async function salaryMonthlySum(
+  db: { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> },
+  roomIds: number[]
+): Promise<number> {
+  const { rows } = await db.query(
+    selectVisibleComponents("c.amount, c.type", roomIds, { activeOnly: true })
+  );
+  return (rows as any[]).reduce((s, r) => s + monthlyComponentAmount(r), 0);
+}
 
 /**
  * Monat bzw. Tag eines lokalen Datums als `YYYY-MM` / `YYYY-MM-DD`.
@@ -139,7 +158,9 @@ router.get("/", async (req, res, next) => {
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
     const monthlyRecurringExpenses = (recurExp as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0);
-    const monthlyRecurringIncome   = (recurInc as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0);
+    const monthlyRecurringIncome   =
+      (recurInc as any[]).reduce((s, r) => s + toMonthly(Number(r.amount), r.type), 0) +
+      (await salaryMonthlySum(db, room.ids));
 
     // ── Übertragungen: **eine Netto-Serie, nur raumkreuzend** ──
     // Eine Umbuchung Giro→Tagesgeld hat beide Enden im selben Raum und ist reines
@@ -228,13 +249,18 @@ router.get("/budget-comparison", async (req, res, next) => {
       []
     );
     const toMonthly = (amount: number, t: string) => t === "annual" ? amount / 12 : amount;
+    // Ein Gehalt endet über `is_active`, nicht über ein `end_date` — es gibt hier
+    // deshalb kein Gegenstück zum monatsweisen `end_date`-Filter der Fixkosten, und
+    // die Summe ist für alle Monate dieselbe.
+    const salaryPlanned = await salaryMonthlySum(db, room.ids);
 
     const result = monthList.map((month) => {
       const plannedExpenses = (expItems as any[])
         .filter((r) => r.end_date == null || r.end_date >= month + "-01")
         .reduce((s: number, r: any) => s + toMonthly(Number(r.amount), r.type), 0);
-      const plannedIncome = (incItems as any[])
-        .reduce((s: number, r: any) => s + toMonthly(Number(r.amount), r.type), 0);
+      const plannedIncome =
+        (incItems as any[]).reduce((s: number, r: any) => s + toMonthly(Number(r.amount), r.type), 0) +
+        salaryPlanned;
       const tx = txMap.get(month) ?? { income: 0, expenses: 0 };
       return {
         month,

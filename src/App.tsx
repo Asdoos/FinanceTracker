@@ -5,6 +5,7 @@ import { LayoutDashboard, Receipt, TrendingUp, Landmark, Tag, ArrowUpCircle, Clo
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import Income from "./pages/Income";
+import SalaryEditor from "./pages/SalaryEditor";
 import Accounts from "./pages/Accounts";
 import Categories from "./pages/Categories";
 import Transactions from "./pages/Transactions";
@@ -265,6 +266,11 @@ function AuthenticatedApp() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/income" element={<Income />} />
+            {/* Zwei Routen, eine Seite: teilbarer Link und funktionierendes
+                Browser-Zurück sind bei einer Ansicht dieser Größe mehr wert als die
+                Musterreinheit „jede Seite hält ihre Modale lokal". */}
+            <Route path="/income/gehalt/neu" element={<SalaryEditor />} />
+            <Route path="/income/gehalt/:id" element={<SalaryEditor />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/categories" element={<Categories />} />

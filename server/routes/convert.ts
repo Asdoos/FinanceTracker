@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getDb } from "../db";
 import { myRole } from "../lib/members";
 import { createDefaultSharedCategory } from "../lib/coupling";
+import { selectVisibleComponents } from "../lib/salary";
 
 /**
  * Umwandlung eines bestehenden Kontos in ein Gemeinschaftskonto.
@@ -62,12 +63,23 @@ router.get("/accounts/:id/convert-preview", async (req, res, next) => {
     }
 
     const count = async (sql: string, params: any[]) => Number((await db.query(sql, params)).rows[0].c);
-    const [transactions, expenses, incomes, goals] = await Promise.all([
+    const [transactions, expenses, incomes, goals, salaries] = await Promise.all([
       count("SELECT COUNT(*) AS c FROM transactions WHERE account_id = ? OR counter_account_id = ?", [id, id]),
       count("SELECT COUNT(*) AS c FROM expense_items WHERE account_id = ?", [id]),
       count("SELECT COUNT(*) AS c FROM income_sources WHERE account_id = ?", [id]),
       count("SELECT COUNT(*) AS c FROM goals WHERE account_id = ?", [id]),
+      // Das Gehalt ist die **empfindlichste** Zeile dieser Vorschau: mit der Umwandlung
+      // sieht der Partner Arbeitgeber, Grundgehalt und jeden Zuschlag. Genau dafür
+      // existiert die Vorschau — „deine Historie wird sichtbar" ist abstrakt, „1 Gehalt
+      // mit 7 Posten" ist es nicht.
+      count("SELECT COUNT(*) AS c FROM salaries WHERE account_id = ?", [id]),
     ]);
+    const salaryComponents = salaries
+      ? await count(
+          selectVisibleComponents("COUNT(*) AS c", [Number(id)], {}),
+          []
+        )
+      : 0;
     const { rows: oldest } = await db.query(
       "SELECT MIN(date) AS d FROM transactions WHERE account_id = ?",
       [id]
@@ -79,6 +91,8 @@ router.get("/accounts/:id/convert-preview", async (req, res, next) => {
       expenses,
       incomes,
       goals,
+      salaries,
+      salaryComponents,
       oldestTransaction: oldest[0]?.d ?? null,
       // `budget_limit` wird bewusst **nicht** mitkopiert: sonst würden aus einem
       // Deckel von 400 € stillschweigend 800 €, und beide Fortschrittsbalken

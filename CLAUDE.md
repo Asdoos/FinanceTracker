@@ -72,7 +72,17 @@ Multi-user JWT-based authentication. First user is created via `/api/auth/setup`
 | `salary_components` | `salary_id` (FK, `ON DELETE CASCADE`), `kind`, `label`, `amount`, `type` (`monthly`\|`annual`), `hourly_rate`, `hours`, `is_active`, `created_by` |
 | `schema_migrations` | `version`, `applied_at` |
 
-Annual amounts are divided by 12 wherever monthly totals are computed. The `GET /api/summary` endpoint is the single source of truth for the Dashboard — it returns pre-aggregated totals, per-account breakdown, per-category breakdown, and enriched expense items with `shareOfTotal`.
+Annual amounts are divided by 12 wherever monthly totals are computed. The `GET /api/summary` endpoint is the single source of truth for the Dashboard — it returns pre-aggregated totals, per-account breakdown, per-category breakdown, enriched expense items with `shareOfTotal`, and a flat `salaries`
+list with embedded components (**ohne** `shareOfTotal` — für Einnahmen gibt es keinen
+etablierten Nenner).
+
+**Das Gehalt trägt keinen Betrag** — jede Einnahmensumme (`totalMonthlyIncome`, `rest`,
+`monthlyIncome` je Konto, `monthlyRecurringIncome`, `plannedIncome`) addiert seine
+**Posten** über `server/lib/salary.ts`. Das ist die eine Stelle, an der ein vergessenes
+Gehalt nicht sichtbar unterschlägt, sondern eine *plausible falsche Zahl* zeigt.
+`itemCount` zählt ein Gehalt dagegen als **eins**, nicht als n Posten. Die Posten stehen
+in der Nutzlast **nur eingebettet**; eine zweite flache Postenliste daneben wäre
+Doppelzählung in JSON.
 
 #### Zwei Dinge, die wie Schlamperei aussehen und Absicht sind
 
@@ -202,6 +212,9 @@ All other routes require `Authorization: Bearer <token>` and follow REST convent
 | `/api/categories` | GET, POST, PATCH /:id, DELETE /:id | `categories.ts` |
 | `/api/expenses` | GET, POST, PATCH /:id, DELETE /:id | `expenses.ts` |
 | `/api/income` | GET, POST, PATCH /:id, DELETE /:id | `income.ts` |
+| `/api/salaries` | GET, POST, PATCH /:id, DELETE /:id | `salaries.ts` |
+| `/api/salaries/:id/components` | POST, PATCH /:cid, DELETE /:cid — **granular, kein „Liste ersetzen"** | `salaries.ts` |
+| `/api/salaries/:id/adopt-income` | POST (atomar: Einnahmen → Posten, Quellzeilen weg) | `salaries.ts` |
 | `/api/transactions` | GET, POST, PATCH /:id, DELETE /:id | `transactions.ts` |
 | `/api/templates` | GET, GET /suggestions, POST, PATCH /:id, DELETE /:id | `templates.ts` |
 | `/api/goals` | GET, POST, PATCH /:id, DELETE /:id | `goals.ts` |
@@ -222,6 +235,7 @@ All other routes require `Authorization: Bearer <token>` and follow REST convent
 | `/` | `Dashboard.tsx` | `GET /api/summary` |
 | `/expenses` | `Expenses.tsx` | `GET /api/expenses` |
 | `/income` | `Income.tsx` | `GET /api/income` |
+| `/income/gehalt/neu`, `/income/gehalt/:id` | `SalaryEditor.tsx` | `GET /api/salaries` + `/accounts` + `/income` |
 | `/transactions` | `Transactions.tsx` | `GET /api/transactions` |
 | `/accounts` | `Accounts.tsx` | `GET /api/accounts` + `GET /api/summary` |
 | `/categories` | `Categories.tsx` | `GET /api/categories` |
@@ -232,6 +246,15 @@ All other routes require `Authorization: Bearer <token>` and follow REST convent
 | `/users` | `UserManagement.tsx` | Auth API (admin only) |
 
 All pages manage their own CRUD modals locally with `useState`. No shared modal/dialog component — each page contains its own.
+
+**`SalaryEditor.tsx` bricht dieses Muster bewusst:** fünfzehn Bestandteilsarten neben
+einer Live-Summe brauchen eine Vollseite, und beim Bearbeiten wäre ein Assistentenschritt
+reiner Weg. Der Preis ist, dass es kein Modal gibt, dessen Zustand die `{ paused }`-Pause
+tragen könnte. Die Begründung der Pause gilt aber unverändert und hier **stärker** — das
+Formular steht länger offen als jedes Modal —, deshalb sind alle `useApi`-Aufrufe der
+Seite **dauerhaft** pausiert (`paused: true` als Konstante). `useApi` prüft `paused` nur
+für den Fokus-Zuhörer, der Erstabruf läuft immer: das heißt genau „einmal laden, nie bei
+Fokus nachladen".
 
 ### Gemeinschaftskonten im Frontend
 
@@ -284,7 +307,18 @@ veraltet. Deshalb steht der Modal-Zustand auf jeder Seite **über** den
 
 ### MCP Server
 
-`server/mcp.ts` provides an MCP (Model Context Protocol) server with ~22 tools for reading and writing financial data. Authentication is via API key (`?apiKey=...` query param or `X-API-Key` header). Each MCP session is scoped to the API key's owner — all queries are filtered by `user_id`.
+`server/mcp.ts` provides an MCP (Model Context Protocol) server with 29 tools (`version: "2.0.0"`) for reading and writing financial data.
+
+**`list_income` liefert `{ incomeSources, salaries }`, nicht ein Array** — und läuft damit
+absichtlich anders als `GET /api/income`, das das Gehalt gar nicht mitliefert. Der
+Leitgedanke: *getrennt halten, wo Verwechslung still schadet — zusammenführen, wo
+Schweigen still schadet.* Beim Frontend ist Verwechslung die Gefahr (`income_sources.id`
+und `salaries.id` sind zwei Autoincrement-Folgen, und `Income.tsx` schickt `item.id`
+ungeprüft zurück), bei einem Sprachmodell das Verschweigen (es berichtet zuversichtlich
+eine falsche Summe). Zwei **benannte** Felder verhindern beides zugleich. Es gibt
+bewusst kein `list_salaries` und kein `set_salary_components` — letzteres ist die
+Lese-Ändern-Schreiben-Falle, bei einem Modell schärfer als in der UI.
+ Authentication is via API key (`?apiKey=...` query param or `X-API-Key` header). Each MCP session is scoped to the API key's owner — all queries are filtered by `user_id`.
 
 ### Docker
 

@@ -253,10 +253,19 @@ router.delete("/:id", async (req, res, next) => {
     const { rows: incRows } = await db.query(
       "SELECT COUNT(*) as c FROM income_sources WHERE account_id = ?", [id]
     );
+    // Ein Gehalt zählt als Inhalt: es hängt am Konto, und **es kaskadiert bewusst
+    // nicht**. Ein Gehalt mit fünfzehn Posten ist das teuerste Gebilde der App — es
+    // still mit dem Konto verschwinden zu lassen wäre der schlechteste Ort für eine
+    // Kaskade. Ohne diese Zählung wäre die Antwort ein Fremdschlüssel-Fehler (500)
+    // statt einer Erklärung.
+    const { rows: salRows } = await db.query(
+      "SELECT COUNT(*) as c FROM salaries WHERE account_id = ?", [id]
+    );
 
-    if (Number(expRows[0].c) > 0 || Number(incRows[0].c) > 0) {
+    if (Number(expRows[0].c) > 0 || Number(incRows[0].c) > 0 || Number(salRows[0].c) > 0) {
       return res.status(409).json({
-        error: "Konto kann nicht gelöscht werden, da noch Ausgaben oder Einnahmen darauf verweisen.",
+        error:
+          "Konto kann nicht gelöscht werden, da noch Ausgaben, Einnahmen oder ein Gehalt darauf verweisen.",
       });
     }
 

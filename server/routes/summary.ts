@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { EXCLUDE_TRANSFERS_SQL, signedAmount } from "../lib/transactions";
 import { MEMBERSHIP_FIELDS } from "../lib/members";
 import { accountIn, hybridPredicate, transactionReadPredicate, visibleAccounts } from "../lib/visibility";
+import { loadSalaries, monthlySalaryTotal, salaryPayload } from "../lib/salary";
 
 const router = Router();
 
@@ -48,6 +49,7 @@ router.get("/", async (req, res, next) => {
       `SELECT * FROM categories WHERE ${hybridPredicate("", acc.shared)} ORDER BY id`,
       [userId]
     );
+    const salaries = await loadSalaries(db, acc.all);
 
     // ── Buchungen des laufenden Monats ──
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -95,11 +97,24 @@ router.get("/", async (req, res, next) => {
 
     const isShared = (accountId: number) => acc.shared.includes(Number(accountId));
 
+    /**
+     * Monatssumme der Gehälter eines Kontos — die eine Stelle, an der ein vergessenes
+     * Gehalt *nicht* sichtbar unterschlägt, sondern eine plausible falsche Zahl zeigt.
+     * Die dritte KPI-Karte trägt je Raum eine andere Größe (`CLAUDE.md`), lügt also in
+     * beide Richtungen.
+     */
+    const salaryMonthly = (predicate: (accountId: number) => boolean) =>
+      sum(
+        salaries.filter((s) => predicate(Number(s.account_id))),
+        (s) => monthlySalaryTotal(s, s.components)
+      );
+
     // ── Top-Level-Totals: **nur der persönliche Raum** ──
     const personalExpenses = activeExpenses.filter((e: any) => !isShared(e.account_id));
     const personalIncomes = activeIncomes.filter((i: any) => !isShared(i.account_id));
     const totalMonthlyExpenses = monthlySum(personalExpenses);
-    const totalMonthlyIncome = monthlySum(personalIncomes);
+    const totalMonthlyIncome =
+      monthlySum(personalIncomes) + salaryMonthly((id) => !isShared(id));
     const rest = totalMonthlyIncome - totalMonthlyExpenses;
 
     // ── Per-Kategorie-Buchungssummen des Monats ──
@@ -135,8 +150,10 @@ router.get("/", async (req, res, next) => {
     function accountEntry(account: any) {
       const accExp = activeExpenses.filter((e: any) => e.account_id === account.id);
       const accInc = activeIncomes.filter((i: any) => i.account_id === account.id);
+      const accSal = salaries.filter((s) => Number(s.account_id) === Number(account.id));
       const monthlyExpenses = monthlySum(accExp);
-      const monthlyIncome = monthlySum(accInc);
+      const monthlyIncome =
+        monthlySum(accInc) + sum(accSal, (s) => monthlySalaryTotal(s, s.components));
 
       const fb = account.member_freibetrag ?? 0;
       const currentYear = new Date().getFullYear();
@@ -177,7 +194,9 @@ router.get("/", async (req, res, next) => {
         // zu lesen („monatlich zu decken: X €", nicht „Verlust") — ein negativer
         // Wert ist dort der Normalfall.
         rest: monthlyIncome - monthlyExpenses,
-        itemCount: accExp.length + accInc.length,
+        // Ein Gehalt zählt als **eins**, nicht als n Posten: die Zahl beantwortet
+        // „wie viel steht auf diesem Konto", und die Klammer ist ein Eintrag.
+        itemCount: accExp.length + accInc.length + accSal.length,
         freibetragMonthly: fbActive ? fb / 12 : 0,
         actualBalance,
         actualBalanceDate,
@@ -268,6 +287,23 @@ router.get("/", async (req, res, next) => {
       sharedAccounts,
       byCategory,
       expenses: enrichedExpenses,
+      // **Flach über alle Räume, Bestandteile eingebettet** — nach dem Vorbild von
+      // `expenses`. Eine Spiegelung in `sharedAccounts[]` wäre eine dritte Struktur
+      // für dieselbe Zeile; eine zweite *flache Postenliste* daneben wäre die
+      // Doppelzählung aus Gestalt B, in JSON statt in SQL.
+      salaries: salaries.map((s) =>
+        salaryPayload(
+          s,
+          accMap[s.account_id]
+            ? {
+                id: s.account_id,
+                name: accMap[s.account_id].name,
+                color: accMap[s.account_id].color,
+                isShared: !!accMap[s.account_id].is_shared,
+              }
+            : null
+        )
+      ),
     });
   } catch (err) {
     next(err);

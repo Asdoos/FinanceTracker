@@ -34,6 +34,7 @@ export default function Setup() {
         if (m.tables.categories) parts.push(`${m.tables.categories} Kategorien`);
         if (m.tables.expense_items) parts.push(`${m.tables.expense_items} Ausgaben`);
         if (m.tables.income_sources) parts.push(`${m.tables.income_sources} Einnahmen`);
+        if (m.tables.salaries) parts.push(`${m.tables.salaries} Gehälter`);
         if (m.tables.transactions) parts.push(`${m.tables.transactions} Transaktionen`);
         if (m.tables.transaction_templates) parts.push(`${m.tables.transaction_templates} Vorlagen`);
         if (m.tables.goals) parts.push(`${m.tables.goals} Sparziele`);

@@ -23,6 +23,26 @@
 export type SalaryPeriodicity = "monthly" | "annual";
 
 /**
+ * Die Gestalt eines Katalogeintrags.
+ *
+ * Getrennt von {@link SalaryCatalogEntry}, weil `kind` dort die aus dem Katalog
+ * *abgeleitete* Vereinigung ist — hier wäre das zirkulär. Diese Fassung prüft die
+ * Einträge (`satisfies`), die andere ist die, mit der Aufrufer arbeiten: über der
+ * `as const`-Vereinigung ist `beispiele` sonst an den Einträgen ohne Beispiele gar
+ * nicht vorhanden und jeder Zugriff ein Typfehler.
+ */
+interface CatalogShape {
+  kind: string;
+  label: string;
+  /** Beispiele für die Palette — die *Bündelung* sichtbar machen, kein Teil des Namens. */
+  beispiele?: string;
+  type: SalaryPeriodicity;
+  betragSchwankt: boolean;
+  vorzeichen: 1 | -1;
+  stundenhilfe: boolean;
+}
+
+/**
  * Fünfzehn Arten, **gebündelt statt granular**.
  *
  * Der Bündelungshebel ist „eine Art darf mehrfach vorkommen und trägt eine eigene
@@ -174,21 +194,15 @@ export const SALARY_CATALOG = [
     vorzeichen: 1,
     stundenhilfe: false,
   },
-] as const satisfies readonly {
-  kind: string;
-  label: string;
-  /** Beispiele für die Palette — die *Bündelung* sichtbar machen, kein Teil des Namens. */
-  beispiele?: string;
-  type: SalaryPeriodicity;
-  betragSchwankt: boolean;
-  vorzeichen: 1 | -1;
-  stundenhilfe: boolean;
-}[];
-
-export type SalaryCatalogEntry = (typeof SALARY_CATALOG)[number];
+] as const satisfies readonly CatalogShape[];
 
 /** Der stabile Schlüssel einer Bestandteilsart. */
-export type SalaryComponentKind = SalaryCatalogEntry["kind"];
+export type SalaryComponentKind = (typeof SALARY_CATALOG)[number]["kind"];
+
+/** Ein Katalogeintrag, wie Aufrufer ihn sehen. */
+export interface SalaryCatalogEntry extends CatalogShape {
+  kind: SalaryComponentKind;
+}
 
 /**
  * Die Schlüssel als nicht-leeres Tupel — die Form, die `z.enum()` verlangt. Die

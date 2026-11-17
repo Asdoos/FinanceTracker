@@ -2,6 +2,8 @@ import { Router } from "express";
 import { getDb } from "../db";
 import { accountIn, transactionReadPredicate, visibleAccounts } from "../lib/visibility";
 import { creatorNames, transferView } from "../lib/masking";
+import { selectVisibleComponents } from "../lib/salary";
+import { salaryCatalogEntry, salaryComponentLabel } from "../../shared/salaryCatalog";
 
 const router = Router();
 
@@ -112,6 +114,23 @@ router.get("/expenses", async (req, res, next) => {
 });
 
 // GET /api/export/income
+/**
+ * **Eine Zeile je Bestandteil**, nicht je Gehalt — und die gewöhnlichen Einnahmen
+ * behalten ihre Zeile mit leeren Gehalts-Spalten.
+ *
+ * Zwei Gründe, beide zwingend:
+ *
+ * - Ein Gehalt passt in die alte Zeile **gar nicht**: `Betrag` und `Typ` bilden ein
+ *   Paar, und ein Gehalt mit monatlichem Grundgehalt und jährlichem Weihnachtsgeld hat
+ *   kein solches Paar. Ein *Bestandteil* hat immer genau eines.
+ * - Die wahrscheinlichste Handlung mit dieser Datei ist `=SUMME(D:D)`. Jede Gestalt,
+ *   die Gehalt **und** Bestandteile als Zeilen führt, verdoppelt genau dort. So steht
+ *   nie eine Summe neben ihren Summanden.
+ *
+ * Verworfen: eine eigene Datei `GET /api/export/salaries`. Dann untertriebe
+ * `einnahmen.csv` still das Einkommen, und „die zweite Datei vergessen" ist kein
+ * lautes Scheitern.
+ */
 router.get("/income", async (req, res, next) => {
   try {
     const db = await getDb();
@@ -125,14 +144,45 @@ router.get("/income", async (req, res, next) => {
        ORDER BY i.label`,
       []
     );
-    const names = await creatorNames(db, rows as any[]);
-    const header = "Bezeichnung;Betrag;Typ;Konto;Raum;Erfasst von;Aktiv;Notiz\n";
-    const data = (rows as any[]).map((r) => [
-      r.label, r.amount, r.type === "monthly" ? "monatlich" : "jährlich",
-      r.account ?? "", roomLabel(r.acc_shared),
-      r.acc_shared ? names.get(Number(r.created_by)) ?? "" : "",
-      r.is_active ? "ja" : "nein", r.note ?? "",
-    ]);
+    const { rows: comps } = await db.query(
+      selectVisibleComponents(
+        `s.employer, c.kind, c.label, c.amount, c.type, c.hourly_rate, c.hours,
+         c.is_active, c.created_by, a.name AS account, a.is_shared AS acc_shared`,
+        acc.all,
+        {
+          joins: "LEFT JOIN accounts a ON a.id = s.account_id",
+          // Arbeitgeber, dann Bezeichnung — die Posten eines Gehalts stehen beieinander.
+          orderBy: "s.employer, c.id",
+        }
+      )
+    );
+
+    const names = await creatorNames(db, [...(rows as any[]), ...(comps as any[])]);
+    const header =
+      "Gehalt;Bestandteil;Bezeichnung;Betrag;Typ;Satz;Stunden;Konto;Raum;Erfasst von;Aktiv;Notiz\n";
+    const typeLabel = (t: string) => (t === "monthly" ? "monatlich" : "jährlich");
+    const creator = (r: any) => (r.acc_shared ? names.get(Number(r.created_by)) ?? "" : "");
+
+    const data = [
+      // Gewöhnliche Einnahme: die beiden Gehalts-Spalten bleiben leer.
+      ...(rows as any[]).map((r) => [
+        "", "", r.label, r.amount, typeLabel(r.type), "", "",
+        r.account ?? "", roomLabel(r.acc_shared), creator(r),
+        r.is_active ? "ja" : "nein", r.note ?? "",
+      ]),
+      // Bestandteil: `Satz`/`Stunden` sind gespeicherte Herleitung und sollen in einer
+      // Tabelle nachrechenbar sein. `Bestandteil` trägt den Anzeigenamen der
+      // Katalogart, `Bezeichnung` die eigene — bei leerem Label denselben Text.
+      ...(comps as any[]).map((r) => [
+        r.employer,
+        salaryCatalogEntry(r.kind)?.label ?? r.kind,
+        salaryComponentLabel(r.kind, r.label),
+        r.amount, typeLabel(r.type),
+        r.hourly_rate ?? "", r.hours ?? "",
+        r.account ?? "", roomLabel(r.acc_shared), creator(r),
+        r.is_active ? "ja" : "nein", "",
+      ]),
+    ];
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="einnahmen-${today()}.csv"`);
     res.send(toCsv(header, data));
